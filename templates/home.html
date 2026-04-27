@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>股市產業鏈系統</title>
+    <style>
+        body { font-family: sans-serif; padding: 50px; line-height: 1.6; }
+        .card { border: 1px solid #ddd; padding: 20px; border-radius: 8px; max-width: 400px; }
+        a { color: #3498db; text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>📊 股市產業鏈分析系統</h1>
+    <div class="card">
+        <h3>請選擇查看產業：</h3>
+        <ul>
+            {% for ind in industries %}
+            <li><a href="/industry/{{ ind.major_id }}">{{ ind.major_name }}</a></li>
+            {% endfor %}
+        </ul>
+    </div>
+</body>
+</html>

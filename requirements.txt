@@ -1,6 +1,14 @@
+<<<<<<< HEAD
 flask
 supabase
 python-dotenv
 pandas
 plotly
+=======
+flask
+supabase
+python-dotenv
+pandas
+plotly
+>>>>>>> tako
 networkx

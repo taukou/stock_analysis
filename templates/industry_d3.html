@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>產業鏈動態分析</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #f8f9fa; font-family: sans-serif; }
+        svg { width: 100vw; height: 100vh; }
+        .node { stroke: #fff; stroke-width: 2px; cursor: pointer; transition: 0.3s; }
+        .link { stroke: #bdc3c7; stroke-opacity: 0.4; }
+        .label { font-size: 12px; font-weight: bold; pointer-events: none; text-anchor: middle; fill: #34495e; }
+        
+        /* 增加顏色辨識 */
+        .industry-node { fill: #3498db; }
+        .industry-node.expanded { fill: #2980b9; stroke: #2c3e50; stroke-width: 4px; } /* 展開後變深色 */
+        .company-node { fill: #2ecc71; }
+        .cb-node { fill: #f1c40f; stroke: #d35400; stroke-width: 2px; }
+        
+        .bg-text { font-size: 24px; font-weight: bold; fill: #dfe6e9; pointer-events: none; }
+        #nav { position: absolute; top: 20px; left: 20px; z-index: 100; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <div id="nav"><a href="/" style="text-decoration:none; color:#3498db; font-weight:bold;">← 返回首頁</a></div>
+    <svg id="canvas"></svg>
+
+    <script>
+        const majorId = "{{ major_id }}";
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        let nodes = [];
+        let links = [];
+
+        const svg = d3.select("#canvas");
+        const container = svg.append("g");
+
+        // 1. 背景標籤
+        const bgLabels = [
+            { t: "上游 (UPSTREAM)", x: width * 0.15 },
+            { t: "中游 (MIDSTREAM)", x: width * 0.5 },
+            { t: "下游 (DOWNSTREAM)", x: width * 0.85 }
+        ];
+        svg.selectAll(".bg-text").data(bgLabels).enter().append("text")
+           .attr("class", "bg-text").attr("x", d => d.x).attr("y", 100)
+           .attr("text-anchor", "middle").text(d => d.t);
+
+        // 2. 縮放功能
+        svg.call(d3.zoom().scaleExtent([0.1, 4]).on("zoom", (e) => container.attr("transform", e.transform)));
+
+        // 3. 物理引擎
+        const simulation = d3.forceSimulation()
+            .force("link", d3.forceLink().id(d => d.id).distance(100))
+            .force("charge", d3.forceManyBody().strength(-400))
+            .force("x", d3.forceX(d => {
+                if (d.group === 'Upstream') return width * 0.15;
+                if (d.group === 'Midstream') return width * 0.5;
+                if (d.group === 'Downstream') return width * 0.85;
+                return width * 0.5;
+            }).strength(1.2))
+            .force("y", d3.forceY(height / 2).strength(0.1))
+            .force("collision", d3.forceCollide().radius(60));
+
+        // 4. 初始載入大球
+        d3.json(`/api/industry_nodes/${majorId}`).then(data => {
+            nodes = data.map(d => ({ ...d, expanded: false })); // 初始化展開狀態
+            update();
+        });
+
+        function update() {
+            // 連線繪製 (使用資料 ID 作為唯一識別)
+            const link = container.selectAll(".link").data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
+            link.exit().remove();
+            const linkEnter = link.enter().append("line").attr("class", "link");
+
+            // 節點繪製
+            const node = container.selectAll(".node-group").data(nodes, d => d.id);
+            node.exit().remove();
+
+            const nodeEnter = node.enter().append("g")
+                .attr("class", "node-group")
+                .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
+                .on("click", (e, d) => {
+                    if (d.type === "industry") toggleNode(d); // 點擊切換展開/收起
+                });
+
+            nodeEnter.append("circle")
+                .attr("r", d => d.type === "industry" ? 30 : 15);
+
+            nodeEnter.append("text")
+                .attr("class", "label")
+                .attr("dy", d => d.type === "industry" ? 50 : 30)
+                .text(d => d.name);
+
+            // 更新節點樣式（展開後的視覺變化）
+            container.selectAll("circle")
+                .attr("class", d => {
+                    let cls = d.type === "industry" ? "node industry-node" : (d.has_cb ? "node cb-node" : "node company-node");
+                    if (d.expanded) cls += " expanded";
+                    return cls;
+                });
+
+            simulation.nodes(nodes);
+            simulation.force("link").links(links);
+            simulation.alpha(1).restart();
+
+            simulation.on("tick", () => {
+                nodes.forEach(d => {
+                    d.x = Math.max(30, Math.min(width - 30, d.x));
+                    d.y = Math.max(30, Math.min(height - 30, d.y));
+                });
+                linkEnter.merge(link)
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+                nodeEnter.merge(node).attr("transform", d => `translate(${d.x},${d.y})`);
+            });
+        }
+
+        // --- 核心邏輯：切換展開與收起 ---
+        function toggleNode(parent) {
+            if (parent.expanded) {
+                // 收起邏輯 (Collapse)
+                console.log("收起節點:", parent.name);
+                
+                // 1. 移除連向此大球的小球 (找出 parentId 相符的)
+                nodes = nodes.filter(n => n.parentId !== parent.id);
+                
+                // 2. 移除相關連線
+                links = links.filter(l => {
+                    const sourceId = l.source.id || l.source;
+                    const targetId = l.target.id || l.target;
+                    return sourceId !== parent.id && targetId !== parent.id;
+                });
+
+                parent.expanded = false;
+                update();
+            } else {
+                // 展開邏輯 (Expand)
+                console.log("展開節點:", parent.name);
+                d3.json(`/api/node_companies/${parent.id}`).then(companies => {
+                    companies.forEach(c => {
+                        if (!nodes.find(n => n.id === c.id)) {
+                            c.x = parent.x;
+                            c.y = parent.y;
+                            c.group = parent.group;
+                            c.parentId = parent.id; // 關鍵標記：紀錄小球屬於哪個大球
+                            nodes.push(c);
+                            links.push({ source: parent.id, target: c.id });
+                        }
+                    });
+                    parent.expanded = true;
+                    update();
+                });
+            }
+        }
+
+        function dragstarted(e, d) { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
+        function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
+        function dragended(e, d) { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+    </script>
+</body>
+</html>

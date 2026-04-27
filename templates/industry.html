@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>產業圖表</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.32.0/plotly.min.js"></script>
+<body>
+    <div style="padding: 20px;">
+        <a href="/">← 返回首頁</a>
+        
+        <div id="chart-data" data-graph='{{ graphJSON | safe }}'></div>
+        
+        <div id="chart" style="width:100%; height:900px;"></div>
+    </div>
+
+    <script type="text/javascript">
+        // 1. 從 HTML 屬性中把資料抓出來
+        const dataElement = document.getElementById('chart-data');
+        const graphData = JSON.parse(dataElement.getAttribute('data-graph'));
+
+        // 2. 畫圖
+        Plotly.newPlot('chart', graphData.data, graphData.layout);
+    </script>
+</body>
+</html>
