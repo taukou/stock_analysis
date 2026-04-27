@@ -1,0 +1,6 @@
+flask
+supabase
+python-dotenv
+pandas
+plotly
+networkx
