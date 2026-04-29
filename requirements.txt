@@ -4,3 +4,5 @@ python-dotenv
 pandas
 plotly
 networkx
+finmind
+tdqm

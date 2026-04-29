@@ -5,76 +5,109 @@ from dotenv import load_dotenv
 from FinMind.data import DataLoader
 from database import supabase 
 
+# 1. 初始化與環境設定
 load_dotenv()
-# 從環境變數讀取 Token
 token = os.getenv("FINMIND_TOKEN")
 
-# 直接在初始化時傳入 Token
-# 如果 token 為 None，它會自動進入匿名模式
-dl = DataLoader(token=token) 
+# FinMind 最新版：初始化時直接傳入 token
+dl = DataLoader(token=token)
 
 if token:
-    print("✅ 已成功載入 FinMind Token")
+    print("✅ FinMind Token 載入成功，已啟用專業版配額")
 else:
-    print("⚠️ 未偵測到 Token，將以匿名模式執行（配額較少）")
+    print("⚠️ 未偵測到 Token，將使用匿名模式 (限制較多)")
 
 def sync_stock_data():
+    # 取得今天日期 (格式: 2026-04-29)
     today = datetime.now().strftime('%Y-%m-%d')
-    
-    # 1. 抓取名單
-    res = supabase.table("companies").select("stock_id, company_name").execute()
-    
-    # 2. 先抓取今天已經更新過的代號，避免重複浪費配額
-    history_res = supabase.table("stock_history").select("stock_id").eq("trade_date", today).execute()
-    updated_ids = [h['stock_id'] for h in history_res.data]
+    print(f"📅 執行日期: {today} | 啟動雙重檢查機制")
+    print("-" * 40)
 
-    print(f"📊 總計需監控: {len(res.data)} 家 | 今日已更新: {len(updated_ids)} 家")
-    
-    for item in res.data:
-        sid = item['stock_id']
-        name = item['company_name']
+    try:
+        # 2. 從 companies 表讀取名單 (這裡欄位叫 stock_id)
+        res = supabase.table("companies").select("stock_id, company_name").execute()
         
-        # 如果今天更新過了，直接跳過
-        if sid in updated_ids:
-            continue
+        if not res.data:
+            print("❌ 資料庫中找不到任何公司名單，請確認 companies 表已有資料。")
+            return
+
+        all_companies = res.data
+        print(f"📋 預計檢查: {len(all_companies)} 家公司")
+
+        # 3. 開始逐一檢查與更新
+        for item in all_companies:
+            sid = item['stock_id']
+            name = item['company_name']
             
-        try:
-            # 抓取最近 5 天
-            df = dl.taiwan_stock_daily(stock_id=sid, start_date='2026-04-20')
-            
-            if df.empty or len(df) < 2:
+            # 安全檢查：確保代號是數字
+            if not str(sid).isdigit():
+                print(f"⏩ 跳過 {name}: 代號仍為中文 '{sid}'，請先跑 get_stock_num.py")
                 continue
 
-            latest = df.iloc[-1]
-            prev = df.iloc[-2]
-            price = float(latest['close'])
-            change = round(((price - prev['close']) / prev['close']) * 100, 2)
+            # --- 第一重檢查：資料庫是否已經存過今天的資料了？ ---
+            # 根據你的 ER 圖，stock_history 關聯欄位叫 company_id
+            check_db = supabase.table("stock_history") \
+                .select("id") \
+                .eq("company_id", sid) \
+                .eq("trade_date", today) \
+                .execute()
 
-            # 更新歷史與快照
-            supabase.table("stock_history").upsert({
-                "company_id": sid, 
-                "trade_date": latest['date'],
-                "close_price": price,
-                "change_percent": change,
-                "volume": int(latest['Trading_Volume'])
-            }).execute()
+            if check_db.data:
+                print(f"😴 已跳過 {name}({sid}): 資料庫已有今日紀錄，無需重複抓取。")
+                continue
 
-            supabase.table("companies").update({
-                "latest_price": price,
-                "latest_change": change
-            }).eq("stock_id", sid).execute()
+            # --- 第二重：資料庫沒資料，才去 FinMind 抓取 ---
+            print(f"📡 搜尋中 {name}({sid})...")
+            try:
+                # 抓取最近 5 天資料 (為了計算漲跌幅)
+                df = dl.taiwan_stock_daily(stock_id=sid, start_date='2026-04-20')
+                
+                if df.empty or len(df) < 2:
+                    print(f"   ⚠️ 無法抓取資料或資料不足兩筆。")
+                    continue
 
-            print(f"📈 {name}({sid}): {price} ({change}%)")
-            
-            # --- 關鍵防護：每抓一家多休息一下 ---
-            time.sleep(1.0) # 稍微加長到 1 秒，細水長流
+                latest = df.iloc[-1]   # 今日
+                prev = df.iloc[-2]     # 昨日
+                
+                latest_price = float(latest['close'])
+                prev_price = float(prev['close'])
+                change_pct = round(((latest_price - prev_price) / prev_price) * 100, 2)
+                volume = int(latest['Trading_Volume'])
 
-        except Exception as e:
-            err_msg = str(e)
-            if "reach the upper limit" in err_msg:
-                print("🚨 觸發 API 限制！請休息一小時後再繼續。")
-                return # 直接中斷，剩下的下次再說
-            print(f"⚠️ {sid} 錯誤: {e}")
+                # 4. 執行寫入
+                # A. 歷史表 (使用 upsert 並指定衝突處理作為雙重保險)
+                supabase.table("stock_history").upsert({
+                    "company_id": sid, 
+                    "trade_date": latest['date'],
+                    "close_price": latest_price,
+                    "change_percent": change_pct,
+                    "volume": volume
+                }, on_conflict="company_id, trade_date").execute()
+
+                # B. 公司快照表 (更新前端顯示用的欄位)
+                supabase.table("companies").update({
+                    "latest_price": latest_price,
+                    "latest_change": change_pct
+                }).eq("stock_id", sid).execute()
+
+                print(f"   ✅ 更新成功: {latest_price} ({change_pct}%) | 交易量: {volume}")
+                
+                # 防禦性休息，避免被 API 封鎖
+                time.sleep(0.8) 
+
+            except Exception as e:
+                err_msg = str(e)
+                if "upper limit" in err_msg:
+                    print("\n🚨 觸發 FinMind 流量限制！")
+                    print("💡 建議：休息一小時後再執行，程式會自動跳過已完成的部分。")
+                    return
+                print(f"   ❌ {name}({sid}) 錯誤: {e}")
+
+        print("-" * 40)
+        print("✨ 任務完成！所有資料均已與資料庫同步。")
+
+    except Exception as e:
+        print(f"💥 程式執行中斷: {e}")
 
 if __name__ == "__main__":
     sync_stock_data()
