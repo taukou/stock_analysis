@@ -2,159 +2,151 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>產業鏈動態分析</title>
+    <title>產業鏈監控系統</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #f8f9fa; font-family: sans-serif; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fdfdfd; font-family: "Microsoft JhengHei", sans-serif; }
         svg { width: 100vw; height: 100vh; }
+        
+        #nav-header { position: absolute; top: 20px; left: 20px; z-index: 1000; background: rgba(255,255,255,0.9); padding: 10px 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid #eee; }
+        #nav-header a { text-decoration: none; color: #3498db; font-weight: bold; }
+
         .node { stroke: #fff; stroke-width: 2px; cursor: pointer; transition: 0.3s; }
         .link { stroke: #bdc3c7; stroke-opacity: 0.4; }
-        .label { font-size: 12px; font-weight: bold; pointer-events: none; text-anchor: middle; fill: #34495e; }
-        
-        /* 增加顏色辨識 */
-        .industry-node { fill: #3498db; }
-        .industry-node.expanded { fill: #2980b9; stroke: #2c3e50; stroke-width: 4px; } /* 展開後變深色 */
-        .company-node { fill: #2ecc71; }
-        .cb-node { fill: #f1c40f; stroke: #d35400; stroke-width: 2px; }
-        
-        .bg-text { font-size: 24px; font-weight: bold; fill: #dfe6e9; pointer-events: none; }
-        #nav { position: absolute; top: 20px; left: 20px; z-index: 100; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .label { font-size: 12px; fill: #2c3e50; font-weight: bold; pointer-events: none; text-anchor: middle; }
+
+        .industry-node { fill: #3498db !important; }
+        .up-node { fill: #e74c3c !important; }
+        .down-node { fill: #27ae60 !important; }
+        .stable-node { fill: #95a5a6 !important; }
+
+        /* 調整背景標籤：放在頂部，避開球球 */
+        .bg-section-label { font-size: 28px; font-weight: 800; fill: #ecf0f1; pointer-events: none; text-anchor: middle; }
+        /* 輔助分隔線 */
+        .section-line { stroke: #f0f0f0; stroke-width: 2px; stroke-dasharray: 5,5; }
     </style>
 </head>
 <body>
-    <div id="nav"><a href="/" style="text-decoration:none; color:#3498db; font-weight:bold;">← 返回首頁</a></div>
+    <div id="nav-header">
+        <a href="/">← 返回列表</a>
+        <span style="margin-left:10px; color:#95a5a6;">| {{ major_id }}</span>
+    </div>
+
     <svg id="canvas"></svg>
 
     <script>
         const majorId = "{{ major_id }}";
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-
-        let nodes = [];
-        let links = [];
+        const width = window.innerWidth, height = window.innerHeight;
+        let nodes = [], links = [];
 
         const svg = d3.select("#canvas");
-        const container = svg.append("g");
-
-        // 1. 背景標籤
-        const bgLabels = [
-            { t: "上游 (UPSTREAM)", x: width * 0.15 },
-            { t: "中游 (MIDSTREAM)", x: width * 0.5 },
-            { t: "下游 (DOWNSTREAM)", x: width * 0.85 }
+        
+        // 畫背景層 (不會隨縮放移動的固定標籤)
+        const bgLayer = svg.append("g").attr("class", "background-labels");
+        const sections = [
+            { name: "上游 UPSTREAM", x: width * 0.2 },
+            { name: "中游 MIDSTREAM", x: width * 0.5 },
+            { name: "下游 DOWNSTREAM", x: width * 0.8 }
         ];
-        svg.selectAll(".bg-text").data(bgLabels).enter().append("text")
-           .attr("class", "bg-text").attr("x", d => d.x).attr("y", 100)
-           .attr("text-anchor", "middle").text(d => d.t);
 
-        // 2. 縮放功能
-        svg.call(d3.zoom().scaleExtent([0.1, 4]).on("zoom", (e) => container.attr("transform", e.transform)));
+        // 在背景畫出區分區塊的虛線
+        bgLayer.selectAll(".section-line")
+            .data([width * 0.35, width * 0.65])
+            .enter().append("line")
+            .attr("class", "section-line")
+            .attr("x1", d => d).attr("y1", 0)
+            .attr("x2", d => d).attr("y2", height);
 
-        // 3. 物理引擎
+        // 畫出頂部的分區文字
+        bgLayer.selectAll(".bg-section-label")
+            .data(sections)
+            .enter().append("text")
+            .attr("class", "bg-section-label")
+            .attr("x", d => d.x)
+            .attr("y", 60) // 固定在上方 60px 處
+            .text(d => d.name);
+
+        const container = svg.append("g"); // 這是會縮放的層
+
+        // 物理引擎
         const simulation = d3.forceSimulation()
             .force("link", d3.forceLink().id(d => d.id).distance(100))
             .force("charge", d3.forceManyBody().strength(-400))
             .force("x", d3.forceX(d => {
-                if (d.group === 'Upstream') return width * 0.15;
+                if (d.group === 'Upstream') return width * 0.2;
                 if (d.group === 'Midstream') return width * 0.5;
-                if (d.group === 'Downstream') return width * 0.85;
+                if (d.group === 'Downstream') return width * 0.8;
                 return width * 0.5;
             }).strength(1.2))
             .force("y", d3.forceY(height / 2).strength(0.1))
-            .force("collision", d3.forceCollide().radius(60));
+            .force("collision", d3.forceCollide().radius(d => getRadius(d) + 10));
 
-        // 4. 初始載入大球
+        function getRadius(d) {
+            if (d.type === "industry") return 35;
+            const boost = Math.min(Math.abs(d.change || 0) * 1.5, 12);
+            return 18 + boost;
+        }
+
+        svg.call(d3.zoom().scaleExtent([0.3, 3]).on("zoom", (e) => container.attr("transform", e.transform)));
+
         d3.json(`/api/industry_nodes/${majorId}`).then(data => {
-            nodes = data.map(d => ({ ...d, expanded: false })); // 初始化展開狀態
+            nodes = data.map(d => ({...d, expanded: false}));
             update();
         });
 
         function update() {
-            // 連線繪製 (使用資料 ID 作為唯一識別)
             const link = container.selectAll(".link").data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
             link.exit().remove();
             const linkEnter = link.enter().append("line").attr("class", "link");
 
-            // 節點繪製
             const node = container.selectAll(".node-group").data(nodes, d => d.id);
             node.exit().remove();
 
-            const nodeEnter = node.enter().append("g")
-                .attr("class", "node-group")
+            const nodeEnter = node.enter().append("g").attr("class", "node-group")
                 .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
-                .on("click", (e, d) => {
-                    if (d.type === "industry") toggleNode(d); // 點擊切換展開/收起
-                });
+                .on("click", (e, d) => d.type === "industry" ? toggleNode(d) : null);
 
             nodeEnter.append("circle")
-                .attr("r", d => d.type === "industry" ? 30 : 15);
-
-            nodeEnter.append("text")
-                .attr("class", "label")
-                .attr("dy", d => d.type === "industry" ? 50 : 30)
-                .text(d => d.name);
-
-            // 更新節點樣式（展開後的視覺變化）
-            container.selectAll("circle")
+                .attr("r", d => getRadius(d))
                 .attr("class", d => {
-                    let cls = d.type === "industry" ? "node industry-node" : (d.has_cb ? "node cb-node" : "node company-node");
-                    if (d.expanded) cls += " expanded";
-                    return cls;
+                    if (d.type === "industry") return "node industry-node";
+                    let c = "stable-node";
+                    if (d.change > 0) c = "up-node";
+                    else if (d.change < 0) c = "down-node";
+                    return `node ${c}`;
                 });
+
+            nodeEnter.append("text").attr("class", "label")
+                .attr("dy", d => getRadius(d) + 20)
+                .text(d => d.type === "company" ? `${d.name} (${d.price})` : d.name);
 
             simulation.nodes(nodes);
             simulation.force("link").links(links);
             simulation.alpha(1).restart();
 
             simulation.on("tick", () => {
-                nodes.forEach(d => {
-                    d.x = Math.max(30, Math.min(width - 30, d.x));
-                    d.y = Math.max(30, Math.min(height - 30, d.y));
-                });
-                linkEnter.merge(link)
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
+                linkEnter.merge(link).attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y);
                 nodeEnter.merge(node).attr("transform", d => `translate(${d.x},${d.y})`);
             });
         }
 
-        // --- 核心邏輯：切換展開與收起 ---
-        function toggleNode(parent) {
-            if (parent.expanded) {
-                // 收起邏輯 (Collapse)
-                console.log("收起節點:", parent.name);
-                
-                // 1. 移除連向此大球的小球 (找出 parentId 相符的)
-                nodes = nodes.filter(n => n.parentId !== parent.id);
-                
-                // 2. 移除相關連線
-                links = links.filter(l => {
-                    const sourceId = l.source.id || l.source;
-                    const targetId = l.target.id || l.target;
-                    return sourceId !== parent.id && targetId !== parent.id;
-                });
-
-                parent.expanded = false;
-                update();
+        function toggleNode(p) {
+            if (p.expanded) {
+                nodes = nodes.filter(n => n.parentId !== p.id);
+                links = links.filter(l => (l.source.id || l.source) !== p.id);
+                p.expanded = false;
             } else {
-                // 展開邏輯 (Expand)
-                console.log("展開節點:", parent.name);
-                d3.json(`/api/node_companies/${parent.id}`).then(companies => {
-                    companies.forEach(c => {
-                        if (!nodes.find(n => n.id === c.id)) {
-                            c.x = parent.x;
-                            c.y = parent.y;
-                            c.group = parent.group;
-                            c.parentId = parent.id; // 關鍵標記：紀錄小球屬於哪個大球
-                            nodes.push(c);
-                            links.push({ source: parent.id, target: c.id });
-                        }
+                d3.json(`/api/node_companies/${p.id}`).then(cs => {
+                    cs.forEach(c => {
+                        c.x = p.x; c.y = p.y; c.parentId = p.id; c.group = p.group;
+                        nodes.push(c);
+                        links.push({ source: p.id, target: c.id });
                     });
-                    parent.expanded = true;
+                    p.expanded = true;
                     update();
                 });
             }
+            update();
         }
 
         function dragstarted(e, d) { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
