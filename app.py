@@ -1,5 +1,5 @@
 from flask import Flask, render_template, jsonify
-from database import fetch_industry_chain, get_companies_by_node, get_all_industries
+from database import fetch_industry_chain, get_companies_by_node, get_all_industries, supabase
 
 app = Flask(__name__)
 
@@ -32,17 +32,27 @@ def api_industry_nodes(major_id):
 
 @app.route('/api/node_companies/<node_id>')
 def api_node_companies(node_id):
-    data = get_companies_by_node(node_id)
-    companies = []
-    for item in data:
-        c = item['companies']
-        companies.append({
-            "id": f"c_{c['company_name']}",
-            "name": c['company_name'],
-            "has_cb": c.get('has_cb', False),
-            "type": "company"
-        })
-    return jsonify(companies)
+    # 這裡要確保 select 裡面有包含最新股價的欄位
+    # 根據你的 ER 圖，欄位是 latest_price 和 latest_change
+    res = supabase.table("company_node_mapping") \
+        .select("stock_id, companies(company_name, latest_price, latest_change)") \
+        .eq("node_id", node_id) \
+        .execute()
 
+    companies = []
+    for item in res.data:
+        c = item['companies']
+        # --- 關鍵對齊處 ---
+        companies.append({
+            "id": f"c_{item['stock_id']}",
+            "name": c['company_name'],
+            "type": "company",
+            # 將資料庫的 latest_price 對應到前端的 price
+            "price": c.get('latest_price') if c.get('latest_price') is not None else "---",
+            # 將資料庫的 latest_change 對應到前端的 change
+            "change": c.get('latest_change') if c.get('latest_change') is not None else 0
+        })
+    
+    return jsonify(companies)
 if __name__ == '__main__':
     app.run(debug=True)

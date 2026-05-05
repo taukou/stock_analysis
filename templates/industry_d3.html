@@ -2,156 +2,256 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>產業鏈監控系統</title>
+    <title>3D 科技產業戰情室 - 最終修正版</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fdfdfd; font-family: "Microsoft JhengHei", sans-serif; }
-        svg { width: 100vw; height: 100vh; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0e14; font-family: "Microsoft JhengHei", sans-serif; }
+        svg { width: 100vw; height: 100vh; display: block; }
         
-        #nav-header { position: absolute; top: 20px; left: 20px; z-index: 1000; background: rgba(255,255,255,0.9); padding: 10px 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid #eee; }
-        #nav-header a { text-decoration: none; color: #3498db; font-weight: bold; }
+        #nav-header { position: absolute; top: 20px; left: 20px; z-index: 1000; background: rgba(15, 23, 42, 0.8); color: #fff; padding: 10px 15px; border-radius: 8px; border: 1px solid #1e293b; backdrop-filter: blur(5px); }
+        #nav-header a { color: #38bdf8; text-decoration: none; }
+        
+        .node { stroke-width: 2px; cursor: pointer; transition: all 0.3s; }
+        .link { stroke: #1e293b; stroke-opacity: 0.4; stroke-width: 1.2px; }
+        
+        .up-node { fill: #f43f5e !important; filter: drop-shadow(0 0 8px #f43f5e); } 
+        .down-node { fill: #10b981 !important; filter: drop-shadow(0 0 8px #10b981); }
+        .stable-node { fill: #64748b !important; }
+        .industry-node { fill: #0ea5e9 !important; filter: drop-shadow(0 0 15px #0ea5e9); stroke: #fff !important; }
+        
+        .label-name { font-weight: bold; fill: #f1f5f9; font-size: 13px; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none; }
+        .label-price { font-size: 11px; font-weight: bold; pointer-events: none; }
+        .text-up { fill: #fb7185; }
+        .text-down { fill: #34d399; }
 
-        .node { stroke: #fff; stroke-width: 2px; cursor: pointer; transition: 0.3s; }
-        .link { stroke: #bdc3c7; stroke-opacity: 0.4; }
-        .label { font-size: 12px; fill: #2c3e50; font-weight: bold; pointer-events: none; text-anchor: middle; }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(1.4); opacity: 0; }
+        }
+        .core-pulse { fill: none; stroke: #0ea5e9; stroke-width: 2px; animation: pulse-ring 2s infinite cubic-bezier(0.45, 0, 0.55, 1); pointer-events: none; }
 
-        .industry-node { fill: #3498db !important; }
-        .up-node { fill: #e74c3c !important; }
-        .down-node { fill: #27ae60 !important; }
-        .stable-node { fill: #95a5a6 !important; }
-
-        /* 調整背景標籤：放在頂部，避開球球 */
-        .bg-section-label { font-size: 28px; font-weight: 800; fill: #ecf0f1; pointer-events: none; text-anchor: middle; }
-        /* 輔助分隔線 */
-        .section-line { stroke: #f0f0f0; stroke-width: 2px; stroke-dasharray: 5,5; }
+        .nav-btn { 
+            position: absolute; display: none; z-index: 1000;
+            background: rgba(15, 23, 42, 0.9); border: 1px solid #334155;
+            padding: 12px 25px; cursor: pointer; border-radius: 30px; color: #94a3b8; font-weight: bold; transition: all 0.3s;
+            backdrop-filter: blur(5px);
+        }
+        .nav-btn:hover { background: #0ea5e9; color: white; box-shadow: 0 0 15px rgba(14, 165, 233, 0.6); }
+        #btn-up { top: 80px; left: 50%; transform: translateX(-50%); }
+        #btn-down { bottom: 30px; left: 50%; transform: translateX(-50%); }
+        #btn-left { top: 50%; left: 30px; transform: translateY(-50%); }
+        #btn-right { top: 50%; right: 30px; transform: translateY(-50%); }
+        #btn-back { top: 20px; right: 20px; background: #e11d48; color: white; border: none; }
     </style>
 </head>
 <body>
     <div id="nav-header">
-        <a href="/">← 返回列表</a>
-        <span style="margin-left:10px; color:#95a5a6;">| {{ major_id }}</span>
+        <a href="/">← 返回列表</a> | <strong>{{ major_id }}</strong>
     </div>
+
+    <button id="btn-back" class="nav-btn" onclick="exitFocusMode()">返回總覽</button>
+    <button id="btn-up" class="nav-btn" onclick="navigate('up')">▲</button>
+    <button id="btn-down" class="nav-btn" onclick="navigate('down')">▼</button>
+    <button id="btn-left" class="nav-btn" onclick="navigate('left')">◀</button>
+    <button id="btn-right" class="nav-btn" onclick="navigate('right')">▶</button>
 
     <svg id="canvas"></svg>
 
     <script>
         const majorId = "{{ major_id }}";
-        const width = window.innerWidth, height = window.innerHeight;
-        let nodes = [], links = [];
+        let width = window.innerWidth, height = window.innerHeight;
+        let nodes = [], links = [], allIndustryData = []; 
+        let currentFocusedIndustry = null; 
 
         const svg = d3.select("#canvas");
-        
-        // 畫背景層 (不會隨縮放移動的固定標籤)
-        const bgLayer = svg.append("g").attr("class", "background-labels");
-        const sections = [
-            { name: "上游 UPSTREAM", x: width * 0.2 },
-            { name: "中游 MIDSTREAM", x: width * 0.5 },
-            { name: "下游 DOWNSTREAM", x: width * 0.8 }
-        ];
+        const container = svg.append("g");
+        const linkLayer = container.append("g");
+        const nodeLayer = container.append("g");
 
-        // 在背景畫出區分區塊的虛線
-        bgLayer.selectAll(".section-line")
-            .data([width * 0.35, width * 0.65])
-            .enter().append("line")
-            .attr("class", "section-line")
-            .attr("x1", d => d).attr("y1", 0)
-            .attr("x2", d => d).attr("y2", height);
-
-        // 畫出頂部的分區文字
-        bgLayer.selectAll(".bg-section-label")
-            .data(sections)
-            .enter().append("text")
-            .attr("class", "bg-section-label")
-            .attr("x", d => d.x)
-            .attr("y", 60) // 固定在上方 60px 處
-            .text(d => d.name);
-
-        const container = svg.append("g"); // 這是會縮放的層
-
-        // 物理引擎
+        // 物理引擎設定
         const simulation = d3.forceSimulation()
-            .force("link", d3.forceLink().id(d => d.id).distance(100))
-            .force("charge", d3.forceManyBody().strength(-400))
-            .force("x", d3.forceX(d => {
+            .force("link", d3.forceLink().id(d => d.id).distance(160))
+            .force("charge", d3.forceManyBody().strength(-1200))
+            .force("collision", d3.forceCollide().radius(d => getRadius(d) + 25));
+
+        // --- 1. 核心：動態 handleResize ---
+        function handleResize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            svg.attr("width", width).attr("height", height);
+            
+            simulation.force("center", d3.forceCenter(width / 2, height / 2));
+            
+            // 💡 邏輯分流：總覽模式維持 0.2/0.5/0.8；聚焦模式指向中心
+            simulation.force("x", d3.forceX(d => {
+                if (currentFocusedIndustry) return width / 2;
                 if (d.group === 'Upstream') return width * 0.2;
                 if (d.group === 'Midstream') return width * 0.5;
                 if (d.group === 'Downstream') return width * 0.8;
                 return width * 0.5;
-            }).strength(1.2))
-            .force("y", d3.forceY(height / 2).strength(0.1))
-            .force("collision", d3.forceCollide().radius(d => getRadius(d) + 10));
-
-        function getRadius(d) {
-            if (d.type === "industry") return 35;
-            const boost = Math.min(Math.abs(d.change || 0) * 1.5, 12);
-            return 18 + boost;
+            }).strength(1.2));
+            
+            simulation.force("y", d3.forceY(height / 2).strength(0.1));
+            simulation.alpha(0.3).restart();
         }
 
-        svg.call(d3.zoom().scaleExtent([0.3, 3]).on("zoom", (e) => container.attr("transform", e.transform)));
+        window.addEventListener("resize", handleResize);
+
+        function getRadius(d) {
+            return d.type === "industry" ? 45 : 25 + Math.min(Math.abs(d.change || 0) * 1.5, 15);
+        }
+
+        function getHexPath(r) {
+            const points = [];
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 3) * i - Math.PI / 2;
+                points.push([r * Math.cos(angle), r * Math.sin(angle)]);
+            }
+            return d3.line()(points) + "Z";
+        }
 
         d3.json(`/api/industry_nodes/${majorId}`).then(data => {
-            nodes = data.map(d => ({...d, expanded: false}));
+            allIndustryData = data;
+            nodes = data.map(d => ({...d}));
+            handleResize();
             update();
         });
 
+        function enterFocusMode(d, direction = 'center') {
+            currentFocusedIndustry = d;
+            d3.json(`/api/node_companies/${d.id}`).then(cs => {
+                let startX = width / 2, startY = height / 2;
+                if(direction === 'up') startY = height + 200;
+                if(direction === 'down') startY = -200;
+                if(direction === 'left') startX = width + 200;
+                if(direction === 'right') startX = -200;
+
+                nodes = [
+                    { ...d, x: width / 2, y: height / 2, fx: width / 2, fy: height / 2 }, 
+                    ...cs.map(c => ({ ...c, x: startX, y: startY, parentId: d.id }))
+                ];
+                links = cs.map(c => ({ source: d.id, target: c.id }));
+                
+                d3.select("#btn-back").style("display", "block");
+                updateNavButtons();
+                handleResize(); // 更新力道至中心
+                update();
+            });
+        }
+
+        function exitFocusMode() {
+            if(nodes[0]) { nodes[0].fx = null; nodes[0].fy = null; }
+            currentFocusedIndustry = null;
+            links = [];
+            nodes = allIndustryData.map(d => ({...d}));
+            d3.selectAll(".nav-btn").style("display", "none");
+            handleResize(); // 恢復總覽分流力道
+            update();
+        }
+
+        function updateNavButtons() {
+            d3.selectAll(".nav-btn:not(#btn-back)").style("display", "none");
+            if (!currentFocusedIndustry) return;
+            const groups = ["Upstream", "Midstream", "Downstream"];
+            const currG = groups.indexOf(currentFocusedIndustry.group);
+            const sameG = allIndustryData.filter(n => n.group === currentFocusedIndustry.group);
+            const currIdx = sameG.findIndex(n => n.id === currentFocusedIndustry.id);
+
+            if (currG > 0) d3.select("#btn-left").style("display", "block").text(`◀ ${groups[currG-1]}`);
+            if (currG < 2) d3.select("#btn-right").style("display", "block").text(`${groups[currG+1]} ▶`);
+            if (currIdx > 0) d3.select("#btn-up").style("display", "block").text(`▲ ${sameG[currIdx-1].name}`);
+            if (currIdx < sameG.length - 1) d3.select("#btn-down").style("display", "block").text(`▼ ${sameG[currIdx+1].name}`);
+        }
+
+        function navigate(dir) {
+            const groups = ["Upstream", "Midstream", "Downstream"];
+            const currG = groups.indexOf(currentFocusedIndustry.group);
+            const sameG = allIndustryData.filter(n => n.group === currentFocusedIndustry.group);
+            const currIdx = sameG.findIndex(n => n.id === currentFocusedIndustry.id);
+            let target = null;
+            if (dir === 'up') target = sameG[currIdx-1];
+            if (dir === 'down') target = sameG[currIdx+1];
+            if (dir === 'left') target = allIndustryData.find(n => n.group === groups[currG-1]);
+            if (dir === 'right') target = allIndustryData.find(n => n.group === groups[currG+1]);
+            if (target) enterFocusMode(target, dir);
+        }
+
         function update() {
-            const link = container.selectAll(".link").data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
+            const link = linkLayer.selectAll(".link").data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
             link.exit().remove();
             const linkEnter = link.enter().append("line").attr("class", "link");
 
-            const node = container.selectAll(".node-group").data(nodes, d => d.id);
+            const node = nodeLayer.selectAll(".node-group").data(nodes, d => d.id);
             node.exit().remove();
 
             const nodeEnter = node.enter().append("g").attr("class", "node-group")
+                .style("opacity", 0)
                 .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
-                .on("click", (e, d) => d.type === "industry" ? toggleNode(d) : null);
+                .on("click", (e, d) => (!currentFocusedIndustry && d.type === "industry") ? enterFocusMode(d) : null);
 
-            nodeEnter.append("circle")
-                .attr("r", d => getRadius(d))
-                .attr("class", d => {
-                    if (d.type === "industry") return "node industry-node";
-                    let c = "stable-node";
-                    if (d.change > 0) c = "up-node";
-                    else if (d.change < 0) c = "down-node";
-                    return `node ${c}`;
-                });
+            nodeEnter.transition().duration(800).style("opacity", 1);
 
-            nodeEnter.append("text").attr("class", "label")
-                .attr("dy", d => getRadius(d) + 20)
-                .text(d => d.type === "company" ? `${d.name} (${d.price})` : d.name);
+            nodeEnter.each(function(d) {
+                const el = d3.select(this);
+                const r = getRadius(d);
+                if (d.type === "industry") {
+                    el.append("circle").attr("r", r).attr("class", "core-pulse");
+                    el.append("path").attr("d", getHexPath(r)).attr("class", "node industry-node");
+                    el.append("circle").attr("r", 5).attr("fill", "#fff").style("opacity", 0.8);
+                } else {
+                    el.append("circle").attr("r", r).attr("class", d => {
+                        const c = d.change || 0;
+                        return c > 0 ? "node up-node" : (c < 0 ? "node down-node" : "node stable-node");
+                    });
+                }
+            });
+
+            const text = nodeEnter.append("text").attr("text-anchor", "middle").attr("dy", d => getRadius(d) + 25);
+            text.append("tspan").attr("x", 0).attr("class", "label-name").text(d => d.name);
+            text.append("tspan").attr("x", 0).attr("dy", "1.2em")
+                .attr("class", d => (d.change || 0) > 0 ? "label-price text-up" : "label-price text-down")
+                .text(d => d.type === "company" ? `${d.price} (${(d.change > 0 ? '+': '')}${d.change}%)` : "");
 
             simulation.nodes(nodes);
             simulation.force("link").links(links);
             simulation.alpha(1).restart();
 
             simulation.on("tick", () => {
-                linkEnter.merge(link).attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y);
-                nodeEnter.merge(node).attr("transform", d => `translate(${d.x},${d.y})`);
-            });
-        }
+                // 💡 關鍵修正：即時讀取視窗寬高，確保邊界隨縮放變動
+                const currW = window.innerWidth;
+                const currH = window.innerHeight;
+                const cX = currW / 2, cY = currH / 2;
 
-        function toggleNode(p) {
-            if (p.expanded) {
-                nodes = nodes.filter(n => n.parentId !== p.id);
-                links = links.filter(l => (l.source.id || l.source) !== p.id);
-                p.expanded = false;
-            } else {
-                d3.json(`/api/node_companies/${p.id}`).then(cs => {
-                    cs.forEach(c => {
-                        c.x = p.x; c.y = p.y; c.parentId = p.id; c.group = p.group;
-                        nodes.push(c);
-                        links.push({ source: p.id, target: c.id });
-                    });
-                    p.expanded = true;
-                    update();
+                linkEnter.merge(link).attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+                
+                nodeEnter.merge(node).each(function(d) {
+                    const group = d3.select(this);
+                    
+                    // 動態邊界限制
+                    const r = getRadius(d);
+                    const pad = 40; 
+                    d.x = Math.max(r + pad, Math.min(currW - r - pad, d.x));
+                    d.y = Math.max(r + pad, Math.min(currH - r - pad, d.y));
+
+                    // 3D 投影效果
+                    const dx = d.x - cX, dy = d.y - cY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const maxD = Math.min(currW, currH) / 1.5;
+                    const scale = Math.max(0.6, 1 - (dist / maxD) * 0.4);
+                    const opacity = Math.max(0.4, 1 - (dist / maxD) * 0.6);
+
+                    group.selectAll("path, circle").attr("transform", `scale(${scale})`).style("opacity", opacity);
+                    group.select("text").style("opacity", opacity).attr("transform", `scale(${scale})`);
+                    
+                    group.attr("transform", `translate(${d.x},${d.y})`);
                 });
-            }
-            update();
+            });
         }
 
         function dragstarted(e, d) { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
         function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
         function dragended(e, d) { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+        svg.call(d3.zoom().on("zoom", (e) => container.attr("transform", e.transform)));
     </script>
 </body>
 </html>
