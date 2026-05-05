@@ -5,11 +5,11 @@ from dotenv import load_dotenv
 from FinMind.data import DataLoader
 from database import supabase 
 
-# 1. 初始化與環境設定
+# 1. 初始化設定
 load_dotenv()
 token = os.getenv("FINMIND_TOKEN")
 
-# FinMind 最新版：初始化時直接傳入 token
+# FinMind 最新版：直接在初始化時傳入 token
 dl = DataLoader(token=token)
 
 if token:
@@ -18,93 +18,89 @@ else:
     print("⚠️ 未偵測到 Token，將使用匿名模式 (限制較多)")
 
 def sync_stock_data():
-    # 取得今天日期 (格式: 2026-04-29)
+    # 取得今天日期字串 (格式: 2026-04-29)
     today = datetime.now().strftime('%Y-%m-%d')
-    print(f"📅 執行日期: {today} | 啟動雙重檢查機制")
-    print("-" * 40)
+    
+    print(f"📅 執行日期: {today}")
+    print("🔍 正在讀取資料庫狀態...")
 
     try:
-        # 2. 從 companies 表讀取名單 (這裡欄位叫 stock_id)
+        # 2. 抓取名單 (從 companies 表抓，主鍵叫 stock_id)
         res = supabase.table("companies").select("stock_id, company_name").execute()
         
-        if not res.data:
-            print("❌ 資料庫中找不到任何公司名單，請確認 companies 表已有資料。")
-            return
-
         all_companies = res.data
-        print(f"📋 預計檢查: {len(all_companies)} 家公司")
+        print(f"📊 開始同步 {len(all_companies)} 家公司的資料...")
+        print("-" * 30)
 
-        # 3. 開始逐一檢查與更新
+        # 3. 開始循環抓取
         for item in all_companies:
             sid = item['stock_id']
             name = item['company_name']
             
-            # 安全檢查：確保代號是數字
+            # 如果 stock_id 還是中文，這行會擋住它
             if not str(sid).isdigit():
                 print(f"⏩ 跳過 {name}: 代號仍為中文 '{sid}'，請先跑 get_stock_num.py")
                 continue
 
-            # --- 第一重檢查：資料庫是否已經存過今天的資料了？ ---
-            # 根據你的 ER 圖，stock_history 關聯欄位叫 company_id
-            check_db = supabase.table("stock_history") \
-                .select("id") \
-                .eq("company_id", sid) \
-                .eq("trade_date", today) \
-                .execute()
-
-            if check_db.data:
-                print(f"😴 已跳過 {name}({sid}): 資料庫已有今日紀錄，無需重複抓取。")
-                continue
-
-            # --- 第二重：資料庫沒資料，才去 FinMind 抓取 ---
-            print(f"📡 搜尋中 {name}({sid})...")
             try:
-                # 抓取最近 5 天資料 (為了計算漲跌幅)
-                df = dl.taiwan_stock_daily(stock_id=sid, start_date='2026-04-20')
+                start_date = '2026-04-21'
+                
+                # ⚠️ 先檢查該公司是否已經有 start_date 之後的資料
+                check_res = supabase.table("stock_history").select("company_id").eq("company_id", sid).gte("trade_date", start_date).execute()
+                if check_res.data:
+                    print(f"⏭️  跳過 {name}({sid}): 已有 {start_date} 之後的資料")
+                    continue
+                
+                # 抓取最近 5 天資料 (為了計算今日與昨日的價差)
+                # 注意：如果今天是週一，start_date 必須往前推到上週五之前
+                df = dl.taiwan_stock_daily(stock_id=sid, start_date=start_date)
                 
                 if df.empty or len(df) < 2:
-                    print(f"   ⚠️ 無法抓取資料或資料不足兩筆。")
+                    print(f"❓ {name}({sid}): 資料不足，無法計算漲跌")
                     continue
 
-                latest = df.iloc[-1]   # 今日
-                prev = df.iloc[-2]     # 昨日
+                # 取得最新兩筆資料
+                latest = df.iloc[-1]   # 最新交易日
+                prev = df.iloc[-2]     # 前一交易日
                 
                 latest_price = float(latest['close'])
                 prev_price = float(prev['close'])
+                trade_date = latest['date']  # ⚠️ 從資料中取得交易日期（不是今天）
+                
+                # 計算漲跌幅公式
+                # $$ \text{change_pct} = \frac{\text{今日} - \text{昨日}}{\text{昨日}} \times 100 $$
                 change_pct = round(((latest_price - prev_price) / prev_price) * 100, 2)
                 volume = int(latest['Trading_Volume'])
 
-                # 4. 執行寫入
-                # A. 歷史表 (使用 upsert 並指定衝突處理作為雙重保險)
+                # 寫入資料庫
+                # A. 歷史表 (欄位對齊 ER 圖: company_id, trade_date, close_price, change_percent, volume)
                 supabase.table("stock_history").upsert({
                     "company_id": sid, 
-                    "trade_date": latest['date'],
+                    "trade_date": trade_date,
                     "close_price": latest_price,
                     "change_percent": change_pct,
                     "volume": volume
-                }, on_conflict="company_id, trade_date").execute()
+                }).execute()
 
-                # B. 公司快照表 (更新前端顯示用的欄位)
+                # B. 公司快照表 (欄位對齊 ER 圖: latest_price, latest_change)
                 supabase.table("companies").update({
                     "latest_price": latest_price,
                     "latest_change": change_pct
                 }).eq("stock_id", sid).execute()
 
-                print(f"   ✅ 更新成功: {latest_price} ({change_pct}%) | 交易量: {volume}")
+                print(f"📈 {name}({sid}) [{trade_date}]: {latest_price} ({change_pct}%) | 量: {volume}")
                 
-                # 防禦性休息，避免被 API 封鎖
+                # 防禦性休息，避免觸發 API 流量限制
                 time.sleep(0.8) 
 
             except Exception as e:
-                err_msg = str(e)
-                if "upper limit" in err_msg:
+                err_text = str(e)
+                if "upper limit" in err_text:
                     print("\n🚨 觸發 FinMind 流量限制！")
-                    print("💡 建議：休息一小時後再執行，程式會自動跳過已完成的部分。")
+                    print("💡 建議：休息 1 小時後再執行，程式會自動跳過已完成的股票。")
                     return
-                print(f"   ❌ {name}({sid}) 錯誤: {e}")
-
-        print("-" * 40)
-        print("✨ 任務完成！所有資料均已與資料庫同步。")
+                else:
+                    print(f"❌ {name}({sid}) 發生錯誤: {e}")
 
     except Exception as e:
         print(f"💥 程式執行中斷: {e}")
