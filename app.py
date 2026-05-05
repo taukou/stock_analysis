@@ -39,6 +39,8 @@ def api_node_companies(node_id):
         companies.append({
             "id": f"c_{c['company_name']}",
             "name": c['company_name'],
+            "price": c.get('latest_price', 0),
+            "change": c.get('latest_change', 0), # 傳給前端決定顏色
             "has_cb": c.get('has_cb', False),
             "type": "company"
         })
