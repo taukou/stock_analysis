@@ -22,12 +22,11 @@ def fetch_industry_chain(major_id):
         .execute()
     return res.data
 
-# --- 就是少了這一段，補上它就能修復錯誤 ---
 def get_companies_by_node(node_id):
     """根據節點 ID 抓取該節點下的所有公司（用於點擊後炸出小球）"""
     res = supabase.table("company_node_mapping") \
         .select("""
-            companies(company_name, market_type, has_cb),
+            companies(stock_id, company_name, market_type, has_cb, latest_price, latest_change),
             value_chain_nodes(node_name)
         """) \
         .eq("node_id", node_id) \

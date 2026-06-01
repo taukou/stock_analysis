@@ -2,164 +2,328 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>產業鏈動態分析</title>
+    <title>3D 科技產業戰情室 - 核心終端版</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #f8f9fa; font-family: sans-serif; }
-        svg { width: 100vw; height: 100vh; }
-        .node { stroke: #fff; stroke-width: 2px; cursor: pointer; transition: 0.3s; }
-        .link { stroke: #bdc3c7; stroke-opacity: 0.4; }
-        .label { font-size: 12px; font-weight: bold; pointer-events: none; text-anchor: middle; fill: #34495e; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0e14; font-family: "Microsoft JhengHei", sans-serif; }
+        svg { width: 100vw; height: 100vh; display: block; }
         
-        /* 增加顏色辨識 */
-        .industry-node { fill: #3498db; }
-        .industry-node.expanded { fill: #2980b9; stroke: #2c3e50; stroke-width: 4px; } /* 展開後變深色 */
-        .company-node { fill: #2ecc71; }
-        .cb-node { fill: #f1c40f; stroke: #d35400; stroke-width: 2px; }
+        #nav-header { position: absolute; top: 20px; left: 20px; z-index: 1000; background: rgba(15, 23, 42, 0.8); color: #fff; padding: 10px 15px; border-radius: 8px; border: 1px solid #1e293b; backdrop-filter: blur(5px); }
+        #nav-header a { color: #38bdf8; text-decoration: none; }
         
-        .bg-text { font-size: 24px; font-weight: bold; fill: #dfe6e9; pointer-events: none; }
-        #nav { position: absolute; top: 20px; left: 20px; z-index: 100; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .node { stroke-width: 2px; cursor: pointer; transition: all 0.3s; }
+        .link { stroke: #1e293b; stroke-opacity: 0.4; stroke-width: 1.2px; }
+        
+        /* 漲跌色系 */
+        .up-node { fill: #f43f5e !important; } 
+        .down-node { fill: #10b981 !important; }
+        .stable-node { fill: #64748b !important; }
+        .industry-node { fill: #0ea5e9 !important; stroke: #fff !important; }
+        
+        .label-name { font-weight: bold; fill: #f1f5f9; font-size: 13px; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none; }
+        .label-price { font-size: 11px; font-weight: bold; pointer-events: none; }
+        .text-up { fill: #fb7185; }
+        .text-down { fill: #34d399; }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(1.4); opacity: 0; }
+        }
+        .core-pulse { fill: none; stroke: #0ea5e9; stroke-width: 2px; animation: pulse-ring 2s infinite cubic-bezier(0.45, 0, 0.55, 1); pointer-events: none; transform-origin: center; transform-box: fill-box; }
+
+        /* 導覽按鈕 */
+        .nav-btn { 
+            position: absolute; display: none; z-index: 1000;
+            background: rgba(15, 23, 42, 0.9); border: 1px solid #334155;
+            padding: 12px 25px; cursor: pointer; border-radius: 30px; color: #94a3b8; font-weight: bold; transition: all 0.3s;
+            backdrop-filter: blur(5px);
+        }
+        .nav-btn:hover { background: #0ea5e9; color: white; box-shadow: 0 0 15px rgba(14, 165, 233, 0.6); }
+        #btn-up { top: 80px; left: 50%; transform: translateX(-50%); }
+        #btn-down { bottom: 30px; left: 50%; transform: translateX(-50%); }
+        #btn-left { top: 50%; left: 30px; transform: translateY(-50%); }
+        #btn-right { top: 50%; right: 30px; transform: translateY(-50%); }
+        #btn-back { top: 20px; right: 20px; background: #e11d48; color: white; border: none; }
+
+        /* 💡 右側資訊分析側邊欄 */
+        #analysis-sidebar {
+            position: absolute; top: 0; right: -400px; width: 360px; height: 100vh;
+            background: rgba(15, 23, 42, 0.92); border-left: 1px solid #1e293b;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);
+            z-index: 2000; transition: right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            padding: 30px 20px; color: #f1f5f9; box-sizing: border-box; overflow-y: auto;
+        }
+        #analysis-sidebar.open { right: 0; }
+        .sidebar-close { position: absolute; top: 20px; right: 20px; background: none; border: none; color: #64748b; font-size: 24px; cursor: pointer; transition: color 0.3s; }
+        .sidebar-close:hover { color: #f43f5e; }
+        
+        .card { background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 12px; padding: 15px; margin-bottom: 20px; }
+        .card-title { font-size: 12px; font-weight: bold; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; border-left: 3px solid #0ea5e9; padding-left: 8px; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+        .data-label { color: #94a3b8; }
+        .data-value { font-weight: bold; }
+        .badge-up { color: #fb7185; }
+        .badge-down { color: #34d399; }
     </style>
 </head>
 <body>
-    <div id="nav"><a href="/" style="text-decoration:none; color:#3498db; font-weight:bold;">← 返回首頁</a></div>
+    <div id="nav-header">
+        <a href="/">← 返回列表</a> | <strong>{{ major_id }}</strong>
+    </div>
+
+    <button id="btn-back" class="nav-btn" onclick="exitFocusMode()">返回總覽</button>
+    <button id="btn-up" class="nav-btn" onclick="navigate('up')">▲</button>
+    <button id="btn-down" class="nav-btn" onclick="navigate('down')">▼</button>
+    <button id="btn-left" class="nav-btn" onclick="navigate('left')">◀</button>
+    <button id="btn-right" class="nav-btn" onclick="navigate('right')">▶</button>
+
+    <div id="analysis-sidebar">
+        <button class="sidebar-close" onclick="closeSidebar()">×</button>
+        <h2 id="sb-company-name" style="margin-top: 10px; margin-bottom: 5px; font-size: 24px; color: #fff;">公司名稱</h2>
+        <div id="sb-stock-id" style="color: #64748b; font-size: 14px; margin-bottom: 25px;">XXXX</div>
+
+        <div class="card">
+            <div class="card-title">Market Quote</div>
+            <div class="data-row"><span class="data-label">最新股價</span><span class="data-value" id="sb-price">--</span></div>
+            <div class="data-row"><span class="data-label">今日漲跌幅</span><span class="data-value" id="sb-change">--</span></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Growth Momentum</div>
+            <div class="data-row"><span class="data-label">資料月份</span><span class="data-value" id="sb-month">--</span></div>
+            <div class="data-row"><span class="data-label">營收年增率 (YoY)</span><span class="data-value" id="sb-yoy">--</span></div>
+            <div class="data-row"><span class="data-label">營收月增率 (MoM)</span><span class="data-value" id="sb-mom">--</span></div>
+            <div class="data-row"><span class="data-label">累計年增率</span><span class="data-value" id="sb-acc-yoy">--</span></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Smart Money Flow</div>
+            <div class="data-row"><span class="data-label">最近交易日</span><span class="data-value" id="sb-trade-date">--</span></div>
+            <div class="data-row"><span class="data-label">投信買賣超</span><span class="data-value" id="sb-trust">--</span></div>
+            <div class="data-row"><span class="data-label">外資買賣超</span><span class="data-value" id="sb-foreign">--</span></div>
+        </div>
+    </div>
+
     <svg id="canvas"></svg>
 
     <script>
         const majorId = "{{ major_id }}";
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-
-        let nodes = [];
-        let links = [];
+        let width = window.innerWidth, height = window.innerHeight;
+        let nodes = [], links = [], allIndustryData = []; 
+        let currentFocusedIndustry = null; 
 
         const svg = d3.select("#canvas");
         const container = svg.append("g");
+        const linkLayer = container.append("g");
+        const nodeLayer = container.append("g");
 
-        // 1. 背景標籤
-        const bgLabels = [
-            { t: "上游 (UPSTREAM)", x: width * 0.15 },
-            { t: "中游 (MIDSTREAM)", x: width * 0.5 },
-            { t: "下游 (DOWNSTREAM)", x: width * 0.85 }
-        ];
-        svg.selectAll(".bg-text").data(bgLabels).enter().append("text")
-           .attr("class", "bg-text").attr("x", d => d.x).attr("y", 100)
-           .attr("text-anchor", "middle").text(d => d.t);
-
-        // 2. 縮放功能
-        svg.call(d3.zoom().scaleExtent([0.1, 4]).on("zoom", (e) => container.attr("transform", e.transform)));
-
-        // 3. 物理引擎
         const simulation = d3.forceSimulation()
-            .force("link", d3.forceLink().id(d => d.id).distance(100))
-            .force("charge", d3.forceManyBody().strength(-400))
-            .force("x", d3.forceX(d => {
-                if (d.group === 'Upstream') return width * 0.15;
-                if (d.group === 'Midstream') return width * 0.5;
-                if (d.group === 'Downstream') return width * 0.85;
-                return width * 0.5;
-            }).strength(1.2))
-            .force("y", d3.forceY(height / 2).strength(0.1))
-            .force("collision", d3.forceCollide().radius(60));
+            .force("link", d3.forceLink().id(d => d.id).distance(160))
+            .force("charge", d3.forceManyBody().strength(-1200))
+            .force("collision", d3.forceCollide().radius(d => getRadius(d) + 25));
 
-        // 4. 初始載入大球
+        function handleResize() {
+            width = window.innerWidth; height = window.innerHeight;
+            svg.attr("width", width).attr("height", height);
+            simulation.force("center", d3.forceCenter(width / 2, height / 2));
+            simulation.force("x", d3.forceX(d => {
+                if (currentFocusedIndustry) return width / 2;
+                if (d.group === 'Upstream') return width * 0.2;
+                if (d.group === 'Midstream') return width * 0.5;
+                if (d.group === 'Downstream') return width * 0.8;
+                return width * 0.5;
+            }).strength(1.2));
+            simulation.force("y", d3.forceY(height / 2).strength(0.1));
+            simulation.alpha(0.3).restart();
+        }
+        window.addEventListener("resize", handleResize);
+
+        function getRadius(d) { return d.type === "industry" ? 45 : 25 + Math.min(Math.abs(d.change || 0) * 1.5, 15); }
+
+        function getHexPath(r) {
+            const points = [];
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 3) * i - Math.PI / 2;
+                points.push([r * Math.cos(angle), r * Math.sin(angle)]);
+            }
+            return d3.line()(points) + "Z";
+        }
+
         d3.json(`/api/industry_nodes/${majorId}`).then(data => {
-            nodes = data.map(d => ({ ...d, expanded: false })); // 初始化展開狀態
-            update();
+            allIndustryData = data; nodes = data.map(d => ({...d})); handleResize(); update();
         });
 
-        function update() {
-            // 連線繪製 (使用資料 ID 作為唯一識別)
-            const link = container.selectAll(".link").data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
-            link.exit().remove();
-            const linkEnter = link.enter().append("line").attr("class", "link");
+        // 💡 側邊欄異步獲取跨表資料
+        function openSidebar(stockId) {
+            fetch(`/api/company_analysis/${stockId}`)
+                .then(res => res.json())
+                .then(res => {
+                    if (!res.success) return;
+                    
+                    document.getElementById("sb-company-name").innerText = res.basic.company_name;
+                    document.getElementById("sb-stock-id").innerText = `${res.basic.stock_id} • ${res.basic.market_type || '上市'}`;
+                    document.getElementById("sb-price").innerText = `${res.basic.latest_price} 元`;
+                    
+                    const changeEl = document.getElementById("sb-change");
+                    const chg = res.basic.latest_change || 0;
+                    changeEl.innerText = `${chg > 0 ? '+' : ''}${chg}%`;
+                    changeEl.className = `data-value ${chg > 0 ? 'badge-up' : 'badge-down'}`;
 
-            // 節點繪製
-            const node = container.selectAll(".node-group").data(nodes, d => d.id);
-            node.exit().remove();
+                    if (res.growth) {
+                        document.getElementById("sb-month").innerText = res.growth.data_month;
+                        document.getElementById("sb-yoy").innerText = `${res.growth.yoy_pct}%`;
+                        document.getElementById("sb-mom").innerText = `${res.growth.mom_pct}%`;
+                        document.getElementById("sb-acc-yoy").innerText = `${res.growth.acc_yoy_pct}%`;
+                    } else {
+                        ['sb-month', 'sb-yoy', 'sb-mom', 'sb-acc-yoy'].forEach(id => document.getElementById(id).innerText = '--');
+                    }
 
-            const nodeEnter = node.enter().append("g")
-                .attr("class", "node-group")
-                .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
-                .on("click", (e, d) => {
-                    if (d.type === "industry") toggleNode(d); // 點擊切換展開/收起
+                    if (res.smart_money) {
+                        document.getElementById("sb-trade-date").innerText = res.smart_money.trade_date;
+                        const t_jhang = Math.round(res.smart_money.trust_net / 1000);
+                        const f_jhang = Math.round(res.smart_money.foreign_net / 1000);
+                        
+                        const t_el = document.getElementById("sb-trust");
+                        t_el.innerText = `${t_jhang > 0 ? '+' : ''}${t_jhang} 張`;
+                        t_el.className = `data-value ${t_jhang >= 0 ? 'badge-up' : 'badge-down'}`;
+                        
+                        const f_el = document.getElementById("sb-foreign");
+                        f_el.innerText = `${f_jhang > 0 ? '+' : ''}${f_jhang} 張`;
+                        f_el.className = `data-value ${f_jhang >= 0 ? 'badge-up' : 'badge-down'}`;
+                    } else {
+                        ['sb-trade-date', 'sb-trust', 'sb-foreign'].forEach(id => document.getElementById(id).innerText = '--');
+                    }
+
+                    document.getElementById("analysis-sidebar").classList.add("open");
                 });
+        }
 
-            nodeEnter.append("circle")
-                .attr("r", d => d.type === "industry" ? 30 : 15);
+        function closeSidebar() { document.getElementById("analysis-sidebar").classList.remove("open"); }
 
-            nodeEnter.append("text")
-                .attr("class", "label")
-                .attr("dy", d => d.type === "industry" ? 50 : 30)
-                .text(d => d.name);
+        function enterFocusMode(d, direction = 'center') {
+            currentFocusedIndustry = d; closeSidebar();
+            d3.json(`/api/node_companies/${d.id}`).then(cs => {
+                let startX = width / 2, startY = height / 2;
+                if(direction === 'up') startY = height + 200;
+                if(direction === 'down') startY = -200;
+                if(direction === 'left') startX = width + 200;
+                if(direction === 'right') startX = -200;
 
-            // 更新節點樣式（展開後的視覺變化）
-            container.selectAll("circle")
-                .attr("class", d => {
-                    let cls = d.type === "industry" ? "node industry-node" : (d.has_cb ? "node cb-node" : "node company-node");
-                    if (d.expanded) cls += " expanded";
-                    return cls;
-                });
-
-            simulation.nodes(nodes);
-            simulation.force("link").links(links);
-            simulation.alpha(1).restart();
-
-            simulation.on("tick", () => {
-                nodes.forEach(d => {
-                    d.x = Math.max(30, Math.min(width - 30, d.x));
-                    d.y = Math.max(30, Math.min(height - 30, d.y));
-                });
-                linkEnter.merge(link)
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
-                nodeEnter.merge(node).attr("transform", d => `translate(${d.x},${d.y})`);
+                nodes = [
+                    { ...d, x: width / 2, y: height / 2, fx: width / 2, fy: height / 2 }, 
+                    ...cs.map(c => ({ ...c, x: startX, y: startY, parentId: d.id }))
+                ];
+                links = cs.map(c => ({ source: d.id, target: c.id }));
+                d3.select("#btn-back").style("display", "block");
+                updateNavButtons(); handleResize(); update();
             });
         }
 
-        // --- 核心邏輯：切換展開與收起 ---
-        function toggleNode(parent) {
-            if (parent.expanded) {
-                // 收起邏輯 (Collapse)
-                console.log("收起節點:", parent.name);
-                
-                // 1. 移除連向此大球的小球 (找出 parentId 相符的)
-                nodes = nodes.filter(n => n.parentId !== parent.id);
-                
-                // 2. 移除相關連線
-                links = links.filter(l => {
-                    const sourceId = l.source.id || l.source;
-                    const targetId = l.target.id || l.target;
-                    return sourceId !== parent.id && targetId !== parent.id;
+        function exitFocusMode() {
+            if(nodes[0]) { nodes[0].fx = null; nodes[0].fy = null; }
+            currentFocusedIndustry = null; links = []; closeSidebar();
+            nodes = allIndustryData.map(d => ({...d}));
+            d3.selectAll(".nav-btn").style("display", "none");
+            handleResize(); update();
+        }
+
+        function updateNavButtons() {
+            d3.selectAll(".nav-btn:not(#btn-back)").style("display", "none");
+            if (!currentFocusedIndustry) return;
+            const groups = ["Upstream", "Midstream", "Downstream"];
+            const currG = groups.indexOf(currentFocusedIndustry.group);
+            const sameG = allIndustryData.filter(n => n.group === currentFocusedIndustry.group);
+            const currIdx = sameG.findIndex(n => n.id === currentFocusedIndustry.id);
+            if (currG > 0) d3.select("#btn-left").style("display", "block").text(`◀ ${groups[currG-1]}`);
+            if (currG < 2) d3.select("#btn-right").style("display", "block").text(`${groups[currG+1]} ▶`);
+            if (currIdx > 0) d3.select("#btn-up").style("display", "block").text(`▲ ${sameG[currIdx-1].name}`);
+            if (currIdx < sameG.length - 1) d3.select("#btn-down").style("display", "block").text(`▼ ${sameG[currIdx+1].name}`);
+        }
+
+        function navigate(dir) {
+            const groups = ["Upstream", "Midstream", "Downstream"];
+            const currG = groups.indexOf(currentFocusedIndustry.group);
+            const sameG = allIndustryData.filter(n => n.group === currentFocusedIndustry.group);
+            const currIdx = sameG.findIndex(n => n.id === currentFocusedIndustry.id);
+            let target = null;
+            if (dir === 'up') target = sameG[currIdx-1];
+            if (dir === 'down') target = sameG[currIdx+1];
+            if (dir === 'left') target = allIndustryData.find(n => n.group === groups[currG-1]);
+            if (dir === 'right') target = allIndustryData.find(n => n.group === groups[currG+1]);
+            if (target) enterFocusMode(target, dir);
+        }
+
+        function update() {
+            const link = linkLayer.selectAll(".link").data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
+            link.exit().remove();
+            const linkEnter = link.enter().append("line").attr("class", "link");
+
+            const node = nodeLayer.selectAll(".node-group").data(nodes, d => d.id);
+            node.exit().remove();
+
+            const nodeEnter = node.enter().append("g").attr("class", "node-group")
+                .style("opacity", 0)
+                .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
+                .on("click", (e, d) => {
+                    if (d.type === "industry" && !currentFocusedIndustry) {
+                        enterFocusMode(d);
+                    } else if (d.type === "company") {
+                        e.stopPropagation(); 
+                        openSidebar(d.id);   
+                    }
                 });
 
-                parent.expanded = false;
-                update();
-            } else {
-                // 展開邏輯 (Expand)
-                console.log("展開節點:", parent.name);
-                d3.json(`/api/node_companies/${parent.id}`).then(companies => {
-                    companies.forEach(c => {
-                        if (!nodes.find(n => n.id === c.id)) {
-                            c.x = parent.x;
-                            c.y = parent.y;
-                            c.group = parent.group;
-                            c.parentId = parent.id; // 關鍵標記：紀錄小球屬於哪個大球
-                            nodes.push(c);
-                            links.push({ source: parent.id, target: c.id });
-                        }
+            nodeEnter.transition().duration(800).style("opacity", 1);
+
+            nodeEnter.each(function(d) {
+                const el = d3.select(this); const r = getRadius(d);
+                if (d.type === "industry") {
+                    if (currentFocusedIndustry) { el.append("circle").attr("r", r).attr("class", "core-pulse"); }
+                    el.append("path").attr("d", getHexPath(r)).attr("class", "node industry-node");
+                    el.append("circle").attr("r", 5).attr("fill", "#fff").style("opacity", 0.8);
+                } else {
+                    el.append("circle").attr("r", r).attr("class", d => {
+                        const c = d.change || 0; return c > 0 ? "node up-node" : (c < 0 ? "node down-node" : "node stable-node");
                     });
-                    parent.expanded = true;
-                    update();
+                }
+            });
+
+            const text = nodeEnter.append("text").attr("text-anchor", "middle").attr("dy", d => getRadius(d) + 25);
+            text.append("tspan").attr("x", 0).attr("class", "label-name").text(d => d.name);
+            text.append("tspan").attr("x", 0).attr("dy", "1.2em")
+                .attr("class", d => (d.change || 0) > 0 ? "label-price text-up" : "label-price text-down")
+                .text(d => d.type === "company" ? `${d.price} (${(d.change > 0 ? '+': '')}${d.change}%)` : "");
+
+            simulation.nodes(nodes); simulation.force("link").links(links); simulation.alpha(1).restart();
+
+            simulation.on("tick", () => {
+                const currW = window.innerWidth; const currH = window.innerHeight; const cX = currW / 2, cY = currH / 2;
+                linkEnter.merge(link).attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+                
+                nodeEnter.merge(node).each(function(d) {
+                    const group = d3.select(this); const r = getRadius(d); const pad = 40; 
+                    d.x = Math.max(r + pad, Math.min(currW - r - pad, d.x)); d.y = Math.max(r + pad, Math.min(currH - r - pad, d.y));
+                    const dx = d.x - cX, dy = d.y - cY; const dist = Math.sqrt(dx * dx + dy * dy); const maxD = Math.min(currW, currH) / 1.5;
+                    const scale = Math.max(0.6, 1 - (dist / maxD) * 0.4); const opacity = Math.max(0.4, 1 - (dist / maxD) * 0.6);
+
+                    // 💡 總覽與聚焦模式下的發光分流判定
+                    if (currentFocusedIndustry) {
+                        const brightness = Math.max(0.4, 1.3 - (dist / maxD) * 0.9); const glowIntensity = Math.max(0, 25 - (dist / maxD) * 30);
+                        group.selectAll("path, circle").attr("transform", `scale(${scale})`).style("opacity", Math.min(1, brightness + 0.2))
+                             .style("filter", d.type === "industry" ? `drop-shadow(0 0 ${glowIntensity}px #0ea5e9) brightness(${brightness})` : "none");
+                    } else {
+                        group.selectAll("path, circle").attr("transform", `scale(${scale})`).style("opacity", opacity).style("filter", "none");
+                    }
+                    group.select("text").style("opacity", opacity).attr("transform", `scale(${scale})`);
+                    group.attr("transform", `translate(${d.x},${d.y})`);
                 });
-            }
+            });
         }
 
         function dragstarted(e, d) { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
         function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
         function dragended(e, d) { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+        svg.call(d3.zoom().on("zoom", (e) => container.attr("transform", e.transform)));
     </script>
 </body>
 </html>
