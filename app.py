@@ -71,4 +71,6 @@ def api_company_analysis(company_id):
     return jsonify(result)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    import sys
+    import serve
+    sys.exit(serve.main())
