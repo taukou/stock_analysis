@@ -39,7 +39,9 @@ def test_upsert_batches_by_500():
     n = Store(c).upsert("t", [{"a": i} for i in range(1201)], "a")
     assert n == 1201
     assert len(c.executed) == 3
-    assert c.executed[0][1][0] == ("upsert", (c.executed[0][1][0][1][0],), {"on_conflict": "a"})
+    sizes = [len(e[1][0][1][0]) for e in c.executed]
+    assert sizes == [500, 500, 201]
+    assert all(e[1][0][2] == {"on_conflict": "a"} for e in c.executed)
 
 
 def test_upsert_empty_skips_api():
@@ -53,6 +55,8 @@ def test_last_value_with_filters():
     assert Store(c).last_value("t", "d", {"market": "上市"}) == "2026-01-02"
     methods = [m for m, _, _ in c.executed[0][1]]
     assert methods == ["select", "eq", "order", "limit"]
+    order = c.executed[0][1][2]
+    assert order[2] == {"desc": True, "nullsfirst": False}
 
 
 def test_last_value_none():
@@ -95,3 +99,14 @@ def test_fake_store_dedupes_and_filters():
     assert f.last_value("p", "d", {"m": "上市"}) == "2026-01-01"
     assert f.last_value("nope", "d") is None
     assert f.upsert("p", [], "id,d") == 0
+
+
+def test_fake_store_upsert_merges_and_rejects_bad_input():
+    f = FakeStore()
+    f.upsert("p", [{"id": "1", "a": 1}], "id")
+    f.upsert("p", [{"id": "1", "b": 2}], "id")
+    assert f.tables["p"][("1",)] == {"id": "1", "a": 1, "b": 2}
+    with pytest.raises(ValueError):
+        f.upsert("p", [{"id": "1"}], "id, d")
+    with pytest.raises(ValueError):
+        f.upsert("p", [{"id": "1"}, {"id": "1"}], "id")

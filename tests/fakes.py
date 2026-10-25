@@ -19,10 +19,15 @@ class FakeStore:
     def upsert(self, table, rows, on_conflict):
         if not rows:
             return 0
-        cols = [c.strip() for c in on_conflict.split(",")]
+        cols = on_conflict.split(",")
+        if any(c != c.strip() or not c for c in cols):
+            raise ValueError(f"on_conflict 格式錯誤: {on_conflict!r}")
+        keys = [tuple(r.get(c) for c in cols) for r in rows]
+        if len(set(keys)) != len(keys):
+            raise ValueError("同一次 upsert 內有重複的衝突鍵")
         store = self.tables.setdefault(table, {})
-        for r in rows:
-            store[tuple(r.get(c) for c in cols)] = dict(r)
+        for k, r in zip(keys, rows):
+            store[k] = {**store.get(k, {}), **r}
         self.upserts.append((table, len(rows)))
         return len(rows)
 

@@ -15,7 +15,7 @@ class Store:
         q = self.client.table(table).select(column)
         for k, v in (filters or {}).items():
             q = q.eq(k, v)
-        res = q.order(column, desc=True).limit(1).execute()
+        res = q.order(column, desc=True, nullsfirst=False).limit(1).execute()
         data = res.data or []
         return data[0][column] if data else None
 
