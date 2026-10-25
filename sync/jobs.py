@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Callable, Literal
 
-from sync.sources import tpex, twse
+from sync.sources import mops, tpex, twse
 
 log = logging.getLogger(__name__)
 
@@ -46,18 +46,20 @@ def _last(store, table, column, filters=None) -> date | None:
     return date.fromisoformat(v) if v else None
 
 
-def _prepare(items, tracked: set[str]) -> list[dict]:
-    """轉成 row、套用過濾、同日重複只留第一筆。"""
+def _prepare(items, tracked: set[str], date_field: str = "trade_date",
+             filter_rows: bool = True) -> list[dict]:
+    """轉成 row、套用過濾、同日（同月）重複只留第一筆。"""
     seen, out = set(), []
     for it in items:
         row = it.to_row()
         sid = row["stock_id"]
-        if not keep_row(sid, tracked):
+        if filter_rows and not keep_row(sid, tracked):
             continue
-        if sid in seen:
-            log.warning("同日重複代號 %s (%s)，保留第一筆", sid, row["trade_date"])
+        key = (sid, row[date_field])
+        if key in seen:
+            log.warning("同日重複代號 %s (%s)，保留第一筆", sid, row[date_field])
             continue
-        seen.add(sid)
+        seen.add(key)
         out.append(row)
     return out
 
@@ -124,3 +126,65 @@ def sync_emerging(store, now: datetime, fetcher: Callable = tpex.fetch_emerging)
     except Exception as e:
         log.exception("emerging 同步失敗")
         return JobResult("emerging", "failed", prev_iso, 0, str(e))
+
+
+# ---- 月營收與除權息 ----
+def months_to_fetch(last: str | None, today: date, backfill_months: int = 13) -> list[tuple[int, int]]:
+    """(民國年, 月) 清單：從 last 前一個月到今天的上個月；last 為 None 時回溯 backfill_months 個月。"""
+    end = today.year * 12 + today.month - 2  # 上個月，以 年*12+(月-1) 表示
+    if last:
+        y, m = last.split("/")
+        start = (int(y) + 1911) * 12 + int(m) - 1 - 1
+    else:
+        start = end - backfill_months + 1
+    return [((i // 12) - 1911, i % 12 + 1) for i in range(start, end + 1)]
+
+
+def month_chunks(start: date, end: date) -> list[tuple[date, date]]:
+    """切成每段都在同一個日曆月內的區間。"""
+    out, d = [], start
+    while d <= end:
+        nxt = (d.replace(day=1) + timedelta(days=32)).replace(day=1)
+        out.append((d, min(end, nxt - timedelta(days=1))))
+        d = nxt
+    return out
+
+
+def sync_revenue(store, now: datetime, fetcher: Callable = mops.fetch_revenue) -> JobResult:
+    last = None
+    total = 0
+    try:
+        last = store.last_value("growth_momentum", "data_month")
+        written = last
+        for y, m in months_to_fetch(last, now.date()):
+            items = [x for market in ("sii", "otc", "rotc") for x in fetcher(y, m, market)]
+            if not items:
+                continue  # 尚未公布
+            rows = _prepare(items, set(), "data_month", filter_rows=False)
+            total += store.upsert("growth_momentum", rows, "stock_id,data_month")
+            written = f"{y}/{m:02d}"
+    except Exception as e:
+        log.exception("revenue 同步失敗")
+        return JobResult("revenue", "failed", last, total, str(e))
+    return JobResult("revenue", "ok", written, total)
+
+
+def sync_ex_rights(store, now: datetime,
+                   fetchers: tuple[Callable, Callable] = (twse.fetch_ex_rights, tpex.fetch_ex_rights)) -> JobResult:
+    last_iso = None
+    total = 0
+    try:
+        last_iso = store.last_value("ex_rights", "ex_date")
+        today = now.date()
+        start = date.fromisoformat(last_iso) - timedelta(days=7) if last_iso else today - timedelta(days=400)
+        tracked = {c["stock_id"] for c in store.tracked_companies()}
+        for a, b in month_chunks(start, today):
+            rows = _prepare([x for f in fetchers for x in f(a, b)], tracked, "ex_date")
+            if not rows:
+                continue
+            total += store.upsert("ex_rights", rows, "stock_id,ex_date")
+            last_iso = max([last_iso or "", *(r["ex_date"] for r in rows)])
+    except Exception as e:
+        log.exception("ex_rights 同步失敗")
+        return JobResult("ex_rights", "failed", last_iso, total, str(e))
+    return JobResult("ex_rights", "ok", last_iso, total)
