@@ -183,6 +183,11 @@
                 throw err;
             }).finally(() => { pendingRequests--; renderBanner(); });
         }
+        // 請求成功但後續渲染丟出例外：記到 console 並顯示在錯誤橫幅（請求失敗已由 track 設定訊息）
+        function showRenderError(err) {
+            console.error(err);
+            if (!lastError) { lastError = `顯示資料失敗：${err && err.message ? err.message : err}`; renderBanner(); }
+        }
         function fetchJSON(url) {
             return fetch(url).then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -198,7 +203,7 @@
 
         track(d3.json(`/api/industry_nodes/${majorId}`), "載入產業節點").then(data => {
             allIndustryData = data; nodes = data.map(d => ({...d})); handleResize(); update();
-        }).catch(() => {});
+        }).catch(showRenderError);
 
         // 💡 側邊欄異步獲取跨表資料
         function openSidebar(stockId) {
@@ -241,7 +246,7 @@
                     }
 
                     document.getElementById("analysis-sidebar").classList.add("open");
-                }).catch(() => {});
+                }).catch(showRenderError);
         }
 
         function closeSidebar() { document.getElementById("analysis-sidebar").classList.remove("open"); }
@@ -262,7 +267,7 @@
                 links = cs.map(c => ({ source: d.id, target: c.id }));
                 d3.select("#btn-back").style("display", "block");
                 updateNavButtons(); handleResize(); update();
-            }).catch(() => { currentFocusedIndustry = null; });
+            }).catch(err => { currentFocusedIndustry = null; showRenderError(err); });
         }
 
         function exitFocusMode() {

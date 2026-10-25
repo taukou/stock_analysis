@@ -27,13 +27,20 @@ def get_all_industries():
 
 def fetch_industry_nodes(major_id):
     """獲取特定產業的所有節點（含沒有公司的節點），依 display_order 排序"""
-    res = get_client().table("value_chain_nodes")         .select("node_id, node_name, position_type, display_order")         .eq("major_id", major_id)         .order("display_order")         .execute()
+    res = (get_client().table("value_chain_nodes")
+           .select("node_id, node_name, position_type, display_order")
+           .eq("major_id", major_id)
+           .order("display_order")
+           .execute())
     return res.data
 
 
 def get_node_companies(node_id):
     """根據節點 ID 抓取該節點下的所有公司（用於點擊後炸出小球）"""
-    res = get_client().table("company_node_mapping")         .select("stock_id, companies(company_name, latest_price, latest_change)")         .eq("node_id", node_id)         .execute()
+    res = (get_client().table("company_node_mapping")
+           .select("stock_id, companies(company_name, latest_price, latest_change)")
+           .eq("node_id", node_id)
+           .execute())
     return res.data
 
 
