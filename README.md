@@ -6,13 +6,13 @@ Flask + Supabase + D3 的台灣科技產業鏈地圖（個人使用）：資料�
 1. 建立虛擬環境：`python -m venv .venv`
 2. `.venv\Scripts\python.exe -m pip install -r requirements-dev.txt`
 3. 複製 `.env.example` 為 `.env` 並填入 Supabase 金鑰（`APP_PORT` 預設 8765，不可用 5000）。
-4. 在 Supabase SQL Editor 依序執行 `db/001_pipeline.sql`、`db/002_ex_date_changes.sql`。
+4. 在 Supabase SQL Editor 依序執行 `db/001_pipeline.sql`、`db/002_ex_date_changes.sql`、`db/003_drop_company_fks.sql`（003 移除外鍵，全市場的法人／營收資料才存得進去）。
 
 ## 使用
 - 同步資料：`.venv\Scripts\python.exe run_sync.py`
 - 稽核股票代號：`.venv\Scripts\python.exe audit_stock_ids.py`
-- 註冊排程（網站登入時啟動、每天 16:00 同步）：`powershell -ExecutionPolicy Bypass -File scripts\install_tasks.ps1`
-- 重啟網站：`scripts\restart_web.ps1`
+- 註冊排程（網站登入時啟動、每天 16:00 同步）：雙擊 `scripts\install_tasks.cmd`（或 `powershell -ExecutionPolicy Bypass -File scripts\install_tasks.ps1`）
+- 重啟網站：雙擊 `scripts\restart_web.cmd`（會確認埠號有在監聽並顯示 OK／FAIL）
 - 網站：http://127.0.0.1:8765/
 - 測試：`.venv\Scripts\python.exe -m pytest -q`
 
