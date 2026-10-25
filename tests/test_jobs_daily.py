@@ -68,7 +68,8 @@ def test_sync_quotes_failure_keeps_written_days():
     store = FakeStore()
     store.tables["daily_quotes"] = {("2330", "2026-10-20"): {"trade_date": "2026-10-20", "market": "上市"}}
     tw = {D22: [q("2330", D22)], D23: SourceError("boom")}
-    r = sync_quotes(store, datetime(2026, 10, 23, 16, 0), fetchers=make_fetchers(tw, {}))
+    tp = {D22: [q("6488", D22, "上櫃")]}
+    r = sync_quotes(store, datetime(2026, 10, 23, 16, 0), fetchers=make_fetchers(tw, tp))
     # 10/21 為空(假日)，10/22 寫入，10/23 失敗
     assert r.status == "failed" and r.last_date == "2026-10-22" and "boom" in r.message
     assert len(store.upserts) == 1
@@ -85,8 +86,9 @@ def test_sync_quotes_filters_and_dedupes():
     store = FakeStore()
     store.tracked = [{"stock_id": "00981A", "company_name": "x", "market_type": "上市"}]
     tw = {D22: [q("2330", D22), q("03001P", D22), q("00981A", D22), q("2330", D22, close=99)]}
-    r = sync_quotes(store, datetime(2026, 10, 22, 16, 0), fetchers=make_fetchers(tw, {}))
-    assert r.status == "ok" and r.rows == 2
+    tp = {D22: [q("6488", D22, "上櫃")]}
+    r = sync_quotes(store, datetime(2026, 10, 22, 16, 0), fetchers=make_fetchers(tw, tp))
+    assert r.status == "ok" and r.rows == 3
     assert store.tables["daily_quotes"][("2330", "2026-10-22")]["close"] == 10.0
     assert ("03001P", "2026-10-22") not in store.tables["daily_quotes"]
 
@@ -131,3 +133,45 @@ def test_emerging_failure():
         raise SourceError("down")
     r = sync_emerging(FakeStore(), datetime(2026, 10, 22, 16, 0), fetcher=boom)
     assert r.status == "failed" and r.message == "down"
+
+
+# ---- 部分公布（Ruling 12）----
+def _seed_quotes(store):
+    store.tables["daily_quotes"] = {("2330", "2026-10-21"): {"trade_date": "2026-10-21", "market": "上市"}}
+
+
+def test_partial_tpex_missing_writes_nothing_for_day():
+    store = FakeStore()
+    _seed_quotes(store)
+    tw = {D22: [q("2330", D22)]}
+    r = sync_quotes(store, datetime(2026, 10, 22, 16, 0), fetchers=make_fetchers(tw, {}))
+    assert r.status == "ok" and r.last_date == "2026-10-21" and r.rows == 0
+    assert "上櫃" in r.message and "2026-10-22" in r.message
+    assert store.upserts == []
+
+
+def test_partial_twse_missing_writes_nothing_for_day():
+    store = FakeStore()
+    store.tables["smart_money_flow"] = {("2330", "2026-10-21"): {"trade_date": "2026-10-21"}}
+    tp = {D22: [flow("6488", D22)]}
+    r = sync_institutional(store, datetime(2026, 10, 22, 16, 0), fetchers=make_fetchers({}, tp))
+    assert r.status == "ok" and r.last_date == "2026-10-21"
+    assert "上市" in r.message and store.upserts == []
+
+
+def test_partial_stops_later_days():
+    store = FakeStore()
+    _seed_quotes(store)
+    tw = {D22: [q("2330", D22)], D23: [q("2330", D23)]}
+    tp = {D23: [q("6488", D23, "上櫃")]}
+    r = sync_quotes(store, datetime(2026, 10, 23, 16, 0), fetchers=make_fetchers(tw, tp))
+    assert r.last_date == "2026-10-21" and store.upserts == []
+
+
+def test_tpex_raises_after_twse_ok_day_unwritten():
+    store = FakeStore()
+    _seed_quotes(store)
+    tw = {D22: [q("2330", D22)]}
+    tp = {D22: SourceError("tpex down")}
+    r = sync_quotes(store, datetime(2026, 10, 22, 16, 0), fetchers=make_fetchers(tw, tp))
+    assert r.status == "failed" and r.last_date == "2026-10-21" and store.upserts == []

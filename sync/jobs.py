@@ -11,6 +11,7 @@ from sync.sources import tpex, twse
 log = logging.getLogger(__name__)
 
 ON_CONFLICT = "stock_id,trade_date"
+MARKET_NAMES = ("上市", "上櫃")
 _FOUR_DIGITS = re.compile(r"\d{4}")
 
 
@@ -67,10 +68,14 @@ def _run_daily(store, now, dataset, table, last, fetchers) -> JobResult:
     try:
         tracked = {c["stock_id"] for c in store.tracked_companies()}
         for d in dates_to_fetch(last, now):
-            items = []
-            for fetch in fetchers:
-                items.extend(fetch(d))
-            rows = _prepare(items, tracked)
+            raw = [list(fetch(d)) for fetch in fetchers]
+            empty = [name for name, r in zip(MARKET_NAMES, raw) if not r]
+            if empty and len(empty) < len(raw):
+                # 只有部分市場已公布：整天不寫，下次再補
+                msg = f"partial: {'、'.join(empty)} not yet published for {d.isoformat()}"
+                log.warning("%s %s", dataset, msg)
+                return JobResult(dataset, "ok", last_iso, total, msg)
+            rows = _prepare([x for r in raw for x in r], tracked)
             if not rows:
                 continue  # 休市日
             total += store.upsert(table, rows, ON_CONFLICT)
@@ -103,10 +108,9 @@ def sync_institutional(store, now: datetime,
 
 
 def sync_emerging(store, now: datetime, fetcher: Callable = tpex.fetch_emerging) -> JobResult:
-    prev_iso = None
+    prev_iso = None  # 供失敗時回報
     try:
-        prev = store.last_value("daily_quotes", "trade_date", {"market": "興櫃"})
-        prev_iso = prev
+        prev_iso = store.last_value("daily_quotes", "trade_date", {"market": "興櫃"})
         quotes = fetcher()
         if not quotes:
             return JobResult("emerging", "ok", prev_iso, 0)
