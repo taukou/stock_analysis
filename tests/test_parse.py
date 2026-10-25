@@ -18,6 +18,8 @@ def test_parse_number_values():
     assert parse_number("29,796,590") == 29796590
     assert parse_number(" -1,231.50 ") == -1231.5
     assert parse_number("0") == 0
+    assert parse_number("+0.24") == 0.24
+    assert parse_number("+1,200") == 1200
 
 
 def test_roc_to_date_formats():

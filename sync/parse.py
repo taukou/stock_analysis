@@ -3,7 +3,7 @@
 import re
 from datetime import date
 
-_NUMBER_RE = re.compile(r"-?\d+(\.\d+)?")
+_NUMBER_RE = re.compile(r"[+-]?\d+(\.\d+)?")
 _TAG_RE = re.compile(r"<[^>]*>")
 _ROC_PATTERNS = (
     re.compile(r"(\d{2,3})/(\d{1,2})/(\d{1,2})"),
