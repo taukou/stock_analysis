@@ -33,6 +33,17 @@ create table if not exists sync_runs (
 );
 
 -- 籌碼與成長動能：新增欄位、放寬 NOT NULL、確保唯一約束
+-- 只在首次執行（dealer_net 欄位尚未存在）時清除既有假 0 資料；之後重跑不會刪資料
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'smart_money_flow' and column_name = 'dealer_net'
+  ) then
+    truncate smart_money_flow, growth_momentum;
+  end if;
+end $$;
+
 alter table smart_money_flow add column if not exists dealer_net bigint;
 
 alter table smart_money_flow alter column trust_net drop not null;
@@ -43,9 +54,6 @@ alter table growth_momentum alter column revenue drop not null;
 alter table growth_momentum alter column yoy_pct drop not null;
 alter table growth_momentum alter column mom_pct drop not null;
 alter table growth_momentum alter column acc_yoy_pct drop not null;
-
--- 先刪除既有假 0 資料（也避免建立唯一約束時因重複而失敗）
-truncate smart_money_flow, growth_momentum;
 
 do $$
 begin
@@ -75,7 +83,7 @@ create or replace function refresh_company_latest()
 returns void
 language sql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
   update companies c
   set latest_price = q.close, latest_change = q.change_pct
@@ -89,6 +97,7 @@ as $$
 $$;
 -- 匿名角色不可呼叫（僅 service key 可）
 revoke execute on function refresh_company_latest() from public, anon, authenticated;
+grant execute on function refresh_company_latest() to service_role;
 
 -- RLS：public schema 所有表啟用，匿名只讀
 do $$

@@ -15,12 +15,27 @@ if not url or not key:
 sb = create_client(url, key)
 ok = True
 
+def is_permission_error(e):
+    code = getattr(e, "code", None)
+    msg = str(getattr(e, "message", "") or e).lower()
+    return code == "42501" or "row-level security" in msg or "permission denied" in msg
+
+
 try:
-    sb.table("sync_runs").insert({"dataset": "rls_check", "status": "ok"}).execute()
+    res = sb.table("sync_runs").insert({"dataset": "rls_check", "status": "ok"}).execute()
     print("anon write blocked: FAIL (insert succeeded)")
     ok = False
-except Exception:
-    print("anon write blocked: OK")
+    try:  # 嘗試清除誤寫入的資料
+        for row in res.data or []:
+            sb.table("sync_runs").delete().eq("id", row["id"]).execute()
+    except Exception:
+        print("cleanup of inserted row failed; please delete dataset='rls_check' rows manually")
+except Exception as e:
+    if is_permission_error(e):
+        print("anon write blocked: OK")
+    else:
+        print(f"anon write blocked: FAIL (unexpected {type(e).__name__})")
+        ok = False
 
 try:
     res = sb.table("companies").select("stock_id").limit(1).execute()
