@@ -1,8 +1,10 @@
-"""公開資訊觀測站月營收（上市／上櫃／興櫃）解析。僅含純 parse 函式；fetch 於 Task 5 補上。"""
+"""公開資訊觀測站月營收（上市／上櫃／興櫃）解析。僅含純 parse 函式；fetch_* 見檔尾。"""
 
 import html as html_lib
 import re
+from typing import Literal
 
+from sync import http
 from sync.models import Revenue
 from sync.parse import parse_number
 
@@ -35,3 +37,14 @@ def parse_revenue(html: str, roc_year: int, month: int) -> list[Revenue]:
             acc_yoy_pct=parse_number(cells[9]),
         ))
     return out
+
+
+def fetch_revenue(roc_year: int, month: int, market: Literal["sii", "otc", "rotc"]) -> list[Revenue]:
+    url = f"https://mopsov.twse.com.tw/nas/t21/{market}/t21sc03_{roc_year}_{month}_0.html"
+    text = http.get_text(url, "cp950")
+    if text is None:
+        return []
+    try:
+        return parse_revenue(text, roc_year, month)
+    except (IndexError, KeyError, ValueError, TypeError) as e:
+        raise http.SourceError(f"解析失敗 {url}：{type(e).__name__}: {str(e)[:200]}") from e

@@ -1,7 +1,8 @@
-"""櫃買中心（上櫃＋興櫃）回應解析。僅含純 parse 函式；fetch 於 Task 5 補上。"""
+"""櫃買中心（上櫃＋興櫃）回應解析。僅含純 parse 函式；fetch_* 見檔尾。"""
 
 from datetime import date
 
+from sync import http
 from sync.models import ExRight, InstFlow, Quote
 from sync.parse import change_pct, parse_number, roc_to_date
 
@@ -86,3 +87,34 @@ def parse_emerging(payload: list) -> list[Quote]:
             volume=parse_number(r.get("TransactionVolume")),
         ))
     return out
+
+
+_BASE = "https://www.tpex.org.tw"
+
+
+def _parsed(url: str, fn, *args):
+    """取 JSON 並解析；版面變動造成的解析錯誤轉成 SourceError，讓排程明確失敗。"""
+    payload = http.get_json(url)
+    try:
+        return fn(payload, *args)
+    except (IndexError, KeyError, ValueError, TypeError) as e:
+        raise http.SourceError(f"解析失敗 {url}：{type(e).__name__}: {str(e)[:200]}") from e
+
+
+def fetch_quotes(d: date) -> list[Quote]:
+    url = f"{_BASE}/www/zh-tw/afterTrading/dailyQuotes?date={d:%Y/%m/%d}&response=json"
+    return _parsed(url, parse_quotes, d)
+
+
+def fetch_institutional(d: date) -> list[InstFlow]:
+    url = f"{_BASE}/www/zh-tw/insti/dailyTrade?type=Daily&sect=AL&date={d:%Y/%m/%d}&response=json"
+    return _parsed(url, parse_institutional, d)
+
+
+def fetch_ex_rights(start: date, end: date) -> list[ExRight]:
+    url = f"{_BASE}/www/zh-tw/bulletin/exDailyQ?startDate={start:%Y/%m/%d}&endDate={end:%Y/%m/%d}&response=json"
+    return _parsed(url, parse_ex_rights)
+
+
+def fetch_emerging() -> list[Quote]:
+    return _parsed(f"{_BASE}/openapi/v1/tpex_esb_latest_statistics", parse_emerging)

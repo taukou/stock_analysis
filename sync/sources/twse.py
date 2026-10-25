@@ -1,8 +1,9 @@
-"""證交所（上市）回應解析。僅含純 parse 函式；fetch 於 Task 5 補上。"""
+"""證交所（上市）回應解析。僅含純 parse 函式；fetch_* 見檔尾。"""
 
 import re
 from datetime import date
 
+from sync import http
 from sync.models import ExRight, InstFlow, Quote
 from sync.parse import change_pct, parse_number, parse_twse_sign, roc_to_date
 
@@ -82,3 +83,30 @@ def parse_ex_rights(payload: dict) -> list[ExRight]:
             total_value=parse_number(r[5]),
         ))
     return out
+
+
+_BASE = "https://www.twse.com.tw/rwd/zh"
+
+
+def _parsed(url: str, fn, *args):
+    """取 JSON 並解析；版面變動造成的解析錯誤轉成 SourceError，讓排程明確失敗。"""
+    payload = http.get_json(url)
+    try:
+        return fn(payload, *args)
+    except (IndexError, KeyError, ValueError, TypeError) as e:
+        raise http.SourceError(f"解析失敗 {url}：{type(e).__name__}: {str(e)[:200]}") from e
+
+
+def fetch_quotes(d: date) -> list[Quote]:
+    url = f"{_BASE}/afterTrading/MI_INDEX?date={d:%Y%m%d}&type=ALLBUT0999&response=json"
+    return _parsed(url, parse_quotes, d)
+
+
+def fetch_institutional(d: date) -> list[InstFlow]:
+    url = f"{_BASE}/fund/T86?date={d:%Y%m%d}&selectType=ALL&response=json"
+    return _parsed(url, parse_institutional, d)
+
+
+def fetch_ex_rights(start: date, end: date) -> list[ExRight]:
+    url = f"{_BASE}/exRight/TWT49U?startDate={start:%Y%m%d}&endDate={end:%Y%m%d}&response=json"
+    return _parsed(url, parse_ex_rights)
