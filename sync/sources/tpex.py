@@ -92,29 +92,21 @@ def parse_emerging(payload: list) -> list[Quote]:
 _BASE = "https://www.tpex.org.tw"
 
 
-def _parsed(url: str, fn, *args):
-    """取 JSON 並解析；版面變動造成的解析錯誤轉成 SourceError，讓排程明確失敗。"""
-    payload = http.get_json(url)
-    try:
-        return fn(payload, *args)
-    except (IndexError, KeyError, ValueError, TypeError) as e:
-        raise http.SourceError(f"解析失敗 {url}：{type(e).__name__}: {str(e)[:200]}") from e
-
 
 def fetch_quotes(d: date) -> list[Quote]:
     url = f"{_BASE}/www/zh-tw/afterTrading/dailyQuotes?date={d:%Y/%m/%d}&response=json"
-    return _parsed(url, parse_quotes, d)
+    return http.parse_with(url, parse_quotes, http.get_json(url), d)
 
 
 def fetch_institutional(d: date) -> list[InstFlow]:
     url = f"{_BASE}/www/zh-tw/insti/dailyTrade?type=Daily&sect=AL&date={d:%Y/%m/%d}&response=json"
-    return _parsed(url, parse_institutional, d)
+    return http.parse_with(url, parse_institutional, http.get_json(url), d)
 
 
 def fetch_ex_rights(start: date, end: date) -> list[ExRight]:
     url = f"{_BASE}/www/zh-tw/bulletin/exDailyQ?startDate={start:%Y/%m/%d}&endDate={end:%Y/%m/%d}&response=json"
-    return _parsed(url, parse_ex_rights)
+    return http.parse_with(url, parse_ex_rights, http.get_json(url))
 
 
 def fetch_emerging() -> list[Quote]:
-    return _parsed(f"{_BASE}/openapi/v1/tpex_esb_latest_statistics", parse_emerging)
+    return http.parse_with(f"{_BASE}/openapi/v1/tpex_esb_latest_statistics", parse_emerging, http.get_json(f"{_BASE}/openapi/v1/tpex_esb_latest_statistics"))

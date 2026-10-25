@@ -44,3 +44,22 @@ def test_mops_404_empty_and_url(monkeypatch):
     monkeypatch.setattr(http, "get_text", lambda u, enc: seen.append((u, enc)) or None)
     assert mops.fetch_revenue(115, 9, "sii") == []
     assert seen == [("https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_115_9_0.html", "cp950")]
+
+
+def test_mops_parser_error_wrapped(monkeypatch):
+    monkeypatch.setattr(http, "get_text", lambda u, enc: "x")
+
+    def boom(*a):
+        raise AttributeError("bad")
+
+    monkeypatch.setattr(mops, "parse_revenue", boom)
+    with pytest.raises(http.SourceError) as e:
+        mops.fetch_revenue(115, 9, "otc")
+    assert "otc/t21sc03_115_9_0" in str(e.value)
+    assert isinstance(e.value.__cause__, AttributeError)
+
+
+def test_list_payload_where_dict_expected_wrapped(monkeypatch):
+    monkeypatch.setattr(http, "get_json", lambda u: [])
+    with pytest.raises(http.SourceError):
+        twse.fetch_quotes(date(2026, 10, 22))

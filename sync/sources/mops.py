@@ -44,7 +44,4 @@ def fetch_revenue(roc_year: int, month: int, market: Literal["sii", "otc", "rotc
     text = http.get_text(url, "cp950")
     if text is None:
         return []
-    try:
-        return parse_revenue(text, roc_year, month)
-    except (IndexError, KeyError, ValueError, TypeError) as e:
-        raise http.SourceError(f"解析失敗 {url}：{type(e).__name__}: {str(e)[:200]}") from e
+    return http.parse_with(url, parse_revenue, text, roc_year, month)

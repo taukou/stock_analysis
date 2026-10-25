@@ -54,10 +54,11 @@ def test_get_json_raises_on_html(monkeypatch):
     assert len(calls) == http.RETRIES
 
 
-def test_get_json_retries_then_succeeds(monkeypatch):
+def test_get_json_retries_then_succeeds(monkeypatch, fake_time):
     calls = set_responses(monkeypatch, [FakeResp(503), FakeResp(503), FakeResp(200, payload={"a": 1})])
     assert http.get_json("http://x/a") == {"a": 1}
     assert len(calls) == 3
+    assert fake_time["sleeps"] == [5, 15]
     assert calls[0][1]["timeout"] == 30
     assert calls[0][1]["headers"]["User-Agent"] == "Mozilla/5.0"
 

@@ -1,9 +1,11 @@
 """節流＋重試的 HTTP 用戶端。所有來源共用一個全域節流時間戳（請求間隔 ≥ MIN_INTERVAL 秒）。"""
 
 import time
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 import requests
+
+T = TypeVar("T")
 
 MIN_INTERVAL = 3.0
 RETRIES = 3
@@ -69,3 +71,11 @@ def get_json(url: str) -> Any:
 
 def get_text(url: str, encoding: str) -> str | None:
     return _fetch(url, lambda r: r.content.decode(encoding, errors="replace"), accept_404=True)
+
+
+def parse_with(url: str, parser: Callable[..., T], *args) -> T:
+    """執行解析函式；版面變動造成的解析錯誤轉成 SourceError（訊息含 URL），讓排程明確失敗。"""
+    try:
+        return parser(*args)
+    except (IndexError, KeyError, ValueError, TypeError, AttributeError) as e:
+        raise SourceError(f"解析失敗 {url}：{type(e).__name__}: {_snip(str(e))}") from e
