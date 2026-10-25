@@ -1,5 +1,5 @@
 from flask import Flask, render_template, jsonify
-from database import fetch_industry_chain, get_companies_by_node, get_all_industries, get_company_analysis, supabase 
+from database import fetch_industry_nodes, get_node_companies, get_all_industries, get_company_analysis
 
 app = Flask(__name__)
 
@@ -30,42 +30,32 @@ def shader_test():
 @app.route('/api/industry_nodes/<major_id>')
 def api_industry_nodes(major_id):
     """獲取特定產業的所有節點（D3 的初始大球）"""
-    raw_data = fetch_industry_chain(major_id)
-    nodes_summary = {}
-    for item in raw_data:
-        n_id = item['node_id']
-        if n_id not in nodes_summary:
-            nodes_summary[n_id] = {
-                "id": n_id,
-                "name": item['value_chain_nodes']['node_name'],
-                "group": item['value_chain_nodes']['position_type'], 
-                "type": "industry"
-            }
-    return jsonify(list(nodes_summary.values()))
+    nodes = [
+        {
+            "id": row["node_id"],
+            "name": row["node_name"],
+            "group": row["position_type"],
+            "type": "industry",
+        }
+        for row in fetch_industry_nodes(major_id)
+    ]
+    return jsonify(nodes)
 
 @app.route('/api/node_companies/<node_id>')
 def api_node_companies(node_id):
-    # 這裡要確保 select 裡面有包含最新股價的欄位
-    # 根據你的 ER 圖，欄位是 latest_price 和 latest_change
-    res = supabase.table("company_node_mapping") \
-        .select("stock_id, companies(company_name, latest_price, latest_change)") \
-        .eq("node_id", node_id) \
-        .execute()
-
+    """獲取節點下的公司；price/change 缺值時回 null"""
     companies = []
-    for item in res.data:
-        c = item['companies']
-        # --- 關鍵對齊處 ---
+    for item in get_node_companies(node_id):
+        c = item.get('companies')
+        if not c:
+            continue
         companies.append({
             "id": f"c_{item['stock_id']}",
             "name": c['company_name'],
             "type": "company",
-            # 將資料庫的 latest_price 對應到前端的 price
-            "price": c.get('latest_price') if c.get('latest_price') is not None else "---",
-            # 將資料庫的 latest_change 對應到前端的 change
-            "change": c.get('latest_change') if c.get('latest_change') is not None else 0
+            "price": c.get('latest_price'),
+            "change": c.get('latest_change')
         })
-    
     return jsonify(companies)
 
 @app.route('/api/company_analysis/<company_id>')

@@ -4,43 +4,45 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 初始化 Supabase 連線
-url = os.environ.get("SUPABASE_URL")
-key = os.environ.get("SUPABASE_KEY")
-if not url or not key:
-    raise RuntimeError("請確認 .env 檔案中包含 SUPABASE_URL 與 SUPABASE_KEY")
-supabase = create_client(url, key)
+_client = None
+
+
+def get_client():
+    """延遲建立 Supabase 連線（匯入模組時不需要網路或 .env）"""
+    global _client
+    if _client is None:
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_KEY")
+        if not url or not key:
+            raise RuntimeError("請確認 .env 檔案中包含 SUPABASE_URL 與 SUPABASE_KEY")
+        _client = create_client(url, key)
+    return _client
+
 
 def get_all_industries():
     """獲取所有大產業清單（用於首頁選單）"""
-    res = supabase.table("major_industries").select("*").execute()
+    res = get_client().table("major_industries").select("*").execute()
     return res.data
 
-def fetch_industry_chain(major_id):
-    """獲取特定產業的所有節點（用於 D3 的初始大球）"""
-    res = supabase.table("company_node_mapping") \
-        .select("node_id, value_chain_nodes(node_name, position_type)") \
-        .eq("value_chain_nodes.major_id", major_id) \
-        .execute()
+
+def fetch_industry_nodes(major_id):
+    """獲取特定產業的所有節點（含沒有公司的節點），依 display_order 排序"""
+    res = get_client().table("value_chain_nodes")         .select("node_id, node_name, position_type, display_order")         .eq("major_id", major_id)         .order("display_order")         .execute()
     return res.data
 
-def get_companies_by_node(node_id):
+
+def get_node_companies(node_id):
     """根據節點 ID 抓取該節點下的所有公司（用於點擊後炸出小球）"""
-    res = supabase.table("company_node_mapping") \
-        .select("""
-            companies(stock_id, company_name, market_type, has_cb, latest_price, latest_change),
-            value_chain_nodes(node_name)
-        """) \
-        .eq("node_id", node_id) \
-        .execute()
+    res = get_client().table("company_node_mapping")         .select("stock_id, companies(company_name, latest_price, latest_change)")         .eq("node_id", node_id)         .execute()
     return res.data
+
 
 def get_company_analysis(company_id):
     """根據 stock_id 或公司名稱抓取公司分析資料（基本資訊 + 成長動能 + 籌碼面）"""
     try:
         # company_id 可能是 stock_id（數字）或 company_name（中文）
         # 先嘗試按 stock_id 查詢
-        basic_res = supabase.table("companies") \
+        basic_res = get_client().table("companies") \
             .select("*") \
             .eq("stock_id", company_id) \
             .limit(1) \
@@ -48,7 +50,7 @@ def get_company_analysis(company_id):
         
         # 如果沒找到，嘗試按 company_name 查詢
         if not basic_res.data or len(basic_res.data) == 0:
-            basic_res = supabase.table("companies") \
+            basic_res = get_client().table("companies") \
                 .select("*") \
                 .eq("company_name", company_id) \
                 .limit(1) \
@@ -66,7 +68,7 @@ def get_company_analysis(company_id):
             return None
         
         # 2. 獲取成長動能（最新月份資料）
-        growth_res = supabase.table("growth_momentum") \
+        growth_res = get_client().table("growth_momentum") \
             .select("*") \
             .eq("stock_id", stock_id) \
             .order("data_month", desc=True) \
@@ -76,7 +78,7 @@ def get_company_analysis(company_id):
         growth = growth_res.data[0] if growth_res.data else None
         
         # 3. 獲取籌碼面資訊（最新交易日資料）
-        smart_money_res = supabase.table("smart_money_flow") \
+        smart_money_res = get_client().table("smart_money_flow") \
             .select("*") \
             .eq("stock_id", stock_id) \
             .order("trade_date", desc=True) \

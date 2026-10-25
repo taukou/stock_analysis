@@ -24,6 +24,12 @@
         .label-price { font-size: 11px; font-weight: bold; pointer-events: none; }
         .text-up { fill: #fb7185; }
         .text-down { fill: #34d399; }
+        .text-stable { fill: #94a3b8; }
+        .badge-stable { color: #94a3b8; }
+
+        #status-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 3000; display: none; text-align: center; padding: 6px 12px; font-size: 14px; font-weight: bold; }
+        #status-banner.loading { display: block; background: rgba(15, 23, 42, 0.92); color: #38bdf8; border-bottom: 1px solid #1e293b; }
+        #status-banner.error { display: block; background: #7f1d1d; color: #fecaca; border-bottom: 1px solid #e11d48; }
 
         @keyframes pulse-ring {
             0% { transform: scale(0.8); opacity: 0.5; }
@@ -67,6 +73,7 @@
     </style>
 </head>
 <body>
+    <div id="status-banner"></div>
     <div id="nav-header">
         <a href="/">← 返回列表</a> | <strong>{{ major_id }}</strong>
     </div>
@@ -107,7 +114,7 @@
     <svg id="canvas"></svg>
 
     <script>
-        const majorId = "{{ major_id }}";
+        const majorId = {{ major_id | tojson }};
         let width = window.innerWidth, height = window.innerHeight;
         let nodes = [], links = [], allIndustryData = []; 
         let currentFocusedIndustry = null; 
@@ -160,60 +167,88 @@
             return d3.line()(points) + "Z";
         }
 
-        d3.json(`/api/industry_nodes/${majorId}`).then(data => {
+        // ---- 載入中／錯誤提示 ----
+        let pendingRequests = 0, lastError = null;
+        function renderBanner() {
+            const el = document.getElementById("status-banner");
+            if (lastError) { el.className = "error"; el.textContent = lastError; }
+            else if (pendingRequests > 0) { el.className = "loading"; el.textContent = "載入中…"; }
+            else { el.className = ""; el.textContent = ""; }
+        }
+        // 包住一個請求：進行中顯示「載入中…」，失敗（非 2xx 或網路錯誤）顯示紅色錯誤
+        function track(promise, what) {
+            pendingRequests++; lastError = null; renderBanner();
+            return promise.catch(err => {
+                lastError = `${what}失敗：${err && err.message ? err.message : err}`;
+                throw err;
+            }).finally(() => { pendingRequests--; renderBanner(); });
+        }
+        function fetchJSON(url) {
+            return fetch(url).then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            });
+        }
+
+        // ---- 缺值（null）一律顯示「—」並用中性色，不當成 0 ----
+        const isNil = v => v === null || v === undefined;
+        const fmtNum = (v, suffix = "") => isNil(v) ? "—" : `${v}${suffix}`;
+        const fmtSigned = (v, suffix = "") => isNil(v) ? "—" : `${v > 0 ? '+' : ''}${v}${suffix}`;
+        const upDownClass = (v, prefix) => isNil(v) || v === 0 ? `${prefix}-stable` : (v > 0 ? `${prefix}-up` : `${prefix}-down`);
+
+        track(d3.json(`/api/industry_nodes/${majorId}`), "載入產業節點").then(data => {
             allIndustryData = data; nodes = data.map(d => ({...d})); handleResize(); update();
-        });
+        }).catch(() => {});
 
         // 💡 側邊欄異步獲取跨表資料
         function openSidebar(stockId) {
-            fetch(`/api/company_analysis/${stockId}`)
-                .then(res => res.json())
+            track(fetchJSON(`/api/company_analysis/${stockId}`), "載入公司資料")
                 .then(res => {
                     if (!res.success) return;
                     
                     document.getElementById("sb-company-name").innerText = res.basic.company_name;
                     document.getElementById("sb-stock-id").innerText = `${res.basic.stock_id} • ${res.basic.market_type || '上市'}`;
-                    document.getElementById("sb-price").innerText = `${res.basic.latest_price} 元`;
+                    document.getElementById("sb-price").innerText = fmtNum(res.basic.latest_price, " 元");
                     
                     const changeEl = document.getElementById("sb-change");
-                    const chg = res.basic.latest_change || 0;
-                    changeEl.innerText = `${chg > 0 ? '+' : ''}${chg}%`;
-                    changeEl.className = `data-value ${chg > 0 ? 'badge-up' : 'badge-down'}`;
+                    const chg = res.basic.latest_change;
+                    changeEl.innerText = fmtSigned(chg, "%");
+                    changeEl.className = `data-value ${upDownClass(chg, 'badge')}`;
 
                     if (res.growth) {
                         document.getElementById("sb-month").innerText = res.growth.data_month;
-                        document.getElementById("sb-yoy").innerText = `${res.growth.yoy_pct}%`;
-                        document.getElementById("sb-mom").innerText = `${res.growth.mom_pct}%`;
-                        document.getElementById("sb-acc-yoy").innerText = `${res.growth.acc_yoy_pct}%`;
+                        document.getElementById("sb-yoy").innerText = fmtNum(res.growth.yoy_pct, "%");
+                        document.getElementById("sb-mom").innerText = fmtNum(res.growth.mom_pct, "%");
+                        document.getElementById("sb-acc-yoy").innerText = fmtNum(res.growth.acc_yoy_pct, "%");
                     } else {
                         ['sb-month', 'sb-yoy', 'sb-mom', 'sb-acc-yoy'].forEach(id => document.getElementById(id).innerText = '--');
                     }
 
                     if (res.smart_money) {
                         document.getElementById("sb-trade-date").innerText = res.smart_money.trade_date;
-                        const t_jhang = Math.round(res.smart_money.trust_net / 1000);
-                        const f_jhang = Math.round(res.smart_money.foreign_net / 1000);
+                        const t_jhang = isNil(res.smart_money.trust_net) ? null : Math.round(res.smart_money.trust_net / 1000);
+                        const f_jhang = isNil(res.smart_money.foreign_net) ? null : Math.round(res.smart_money.foreign_net / 1000);
                         
                         const t_el = document.getElementById("sb-trust");
-                        t_el.innerText = `${t_jhang > 0 ? '+' : ''}${t_jhang} 張`;
-                        t_el.className = `data-value ${t_jhang >= 0 ? 'badge-up' : 'badge-down'}`;
+                        t_el.innerText = fmtSigned(t_jhang, " 張");
+                        t_el.className = `data-value ${upDownClass(t_jhang, 'badge')}`;
                         
                         const f_el = document.getElementById("sb-foreign");
-                        f_el.innerText = `${f_jhang > 0 ? '+' : ''}${f_jhang} 張`;
-                        f_el.className = `data-value ${f_jhang >= 0 ? 'badge-up' : 'badge-down'}`;
+                        f_el.innerText = fmtSigned(f_jhang, " 張");
+                        f_el.className = `data-value ${upDownClass(f_jhang, 'badge')}`;
                     } else {
                         ['sb-trade-date', 'sb-trust', 'sb-foreign'].forEach(id => document.getElementById(id).innerText = '--');
                     }
 
                     document.getElementById("analysis-sidebar").classList.add("open");
-                });
+                }).catch(() => {});
         }
 
         function closeSidebar() { document.getElementById("analysis-sidebar").classList.remove("open"); }
 
         function enterFocusMode(d, direction = 'center') {
             currentFocusedIndustry = d; closeSidebar();
-            d3.json(`/api/node_companies/${d.id}`).then(cs => {
+            track(d3.json(`/api/node_companies/${d.id}`), "載入公司清單").then(cs => {
                 let startX = width / 2, startY = height / 2;
                 if(direction === 'up') startY = height + 200;
                 if(direction === 'down') startY = -200;
@@ -227,7 +262,7 @@
                 links = cs.map(c => ({ source: d.id, target: c.id }));
                 d3.select("#btn-back").style("display", "block");
                 updateNavButtons(); handleResize(); update();
-            });
+            }).catch(() => { currentFocusedIndustry = null; });
         }
 
         function exitFocusMode() {
@@ -294,7 +329,7 @@
                     el.append("circle").attr("r", 5).attr("fill", "#fff").style("opacity", 0.8);
                 } else {
                     el.append("circle").attr("r", r).attr("class", d => {
-                        const c = d.change || 0; return c > 0 ? "node up-node" : (c < 0 ? "node down-node" : "node stable-node");
+                        const c = d.change; return isNil(c) || c === 0 ? "node stable-node" : (c > 0 ? "node up-node" : "node down-node");
                     });
                 }
             });
@@ -302,8 +337,8 @@
             const text = nodeEnter.append("text").attr("text-anchor", "middle").attr("dy", d => getRadius(d) + 25);
             text.append("tspan").attr("x", 0).attr("class", "label-name").text(d => d.name);
             text.append("tspan").attr("x", 0).attr("dy", "1.2em")
-                .attr("class", d => (d.change || 0) > 0 ? "label-price text-up" : "label-price text-down")
-                .text(d => d.type === "company" ? `${d.price} (${(d.change > 0 ? '+': '')}${d.change}%)` : "");
+                .attr("class", d => `label-price ${upDownClass(d.change, 'text')}`)
+                .text(d => d.type === "company" ? `${fmtNum(d.price)} (${fmtSigned(d.change, "%")})` : "");
 
             simulation.nodes(nodes); simulation.force("link").links(links); simulation.alpha(1).restart();
 
