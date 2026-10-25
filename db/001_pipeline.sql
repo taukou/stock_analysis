@@ -1,5 +1,24 @@
 -- 資料管線結構：請在 Supabase SQL Editor 執行（可重複執行）
 
+-- 既有保留的舊 daily_quotes（無 trade_date 欄位）：若為空表則刪除重建，有資料則中止
+do $$
+declare n bigint;
+begin
+  if exists (select 1 from information_schema.tables
+             where table_schema = 'public' and table_name = 'daily_quotes')
+     and not exists (select 1 from information_schema.columns
+                     where table_schema = 'public' and table_name = 'daily_quotes'
+                       and column_name = 'trade_date') then
+    execute 'select count(*) from public.daily_quotes' into n;
+    if n = 0 then
+      drop table public.daily_quotes cascade;
+      raise notice 'dropped stale empty table public.daily_quotes (old shape, 0 rows); it will be recreated';
+    else
+      raise exception 'public.daily_quotes has an unexpected shape (no trade_date) and % rows; nothing was dropped', n;
+    end if;
+  end if;
+end $$;
+
 create table if not exists daily_quotes (
   stock_id text not null,
   trade_date date not null,
