@@ -7,6 +7,8 @@ load_dotenv()
 # 初始化 Supabase 連線
 url = os.environ.get("SUPABASE_URL")
 key = os.environ.get("SUPABASE_KEY")
+if not url or not key:
+    raise RuntimeError("請確認 .env 檔案中包含 SUPABASE_URL 與 SUPABASE_KEY")
 supabase = create_client(url, key)
 
 def get_all_industries():
