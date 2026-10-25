@@ -30,3 +30,14 @@ def test_parse_revenue_missing_pct_is_none():
     )
     r = parse_revenue(html, 115, 9)[0]
     assert r == Revenue("9999", "115/09", 1000, None, None, -3.5)
+
+
+def test_parse_revenue_header_without_rows_raises():
+    import pytest
+    html = "<table><tr><th>公司代號</th><th>公司名稱</th></tr></table>"
+    with pytest.raises(ValueError):
+        parse_revenue(html, 115, 9)
+
+
+def test_parse_revenue_no_header_no_rows_is_empty():
+    assert parse_revenue("<html></html>", 115, 9) == []

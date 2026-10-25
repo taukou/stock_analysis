@@ -36,6 +36,9 @@ def parse_revenue(html: str, roc_year: int, month: int) -> list[Revenue]:
             yoy_pct=parse_number(cells[6]),
             acc_yoy_pct=parse_number(cells[9]),
         ))
+    if not out and "公司代號" in html:
+        # 有表頭卻沒有任何資料列：版面可能改了，明確失敗而非當成「尚未公布」
+        raise ValueError("月營收頁有表頭但解析不到任何資料列（版面可能變更）")
     return out
 
 

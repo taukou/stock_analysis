@@ -175,3 +175,13 @@ def test_tpex_raises_after_twse_ok_day_unwritten():
     tp = {D22: SourceError("tpex down")}
     r = sync_quotes(store, datetime(2026, 10, 22, 16, 0), fetchers=make_fetchers(tw, tp))
     assert r.status == "failed" and r.last_date == "2026-10-21" and store.upserts == []
+
+
+def test_past_day_one_market_empty_is_failed():
+    store = FakeStore()
+    _seed_quotes(store)
+    tw = {D22: [q("2330", D22)]}
+    r = sync_quotes(store, datetime(2026, 10, 23, 16, 0), fetchers=make_fetchers(tw, {}))
+    assert r.status == "failed" and r.last_date == "2026-10-21"
+    assert "上櫃" in r.message and "2026-10-22" in r.message
+    assert store.upserts == []

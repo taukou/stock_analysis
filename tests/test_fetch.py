@@ -63,3 +63,9 @@ def test_list_payload_where_dict_expected_wrapped(monkeypatch):
     monkeypatch.setattr(http, "get_json", lambda u: [])
     with pytest.raises(http.SourceError):
         twse.fetch_quotes(date(2026, 10, 22))
+
+
+def test_mops_header_without_rows_becomes_source_error(monkeypatch):
+    monkeypatch.setattr(http, "get_text", lambda u, enc: "<table><tr><th>公司代號</th></tr></table>")
+    with pytest.raises(http.SourceError):
+        mops.fetch_revenue(115, 9, "sii")

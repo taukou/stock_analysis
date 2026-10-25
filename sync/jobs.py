@@ -73,6 +73,11 @@ def _run_daily(store, now, dataset, table, last, fetchers) -> JobResult:
             raw = [list(fetch(d)) for fetch in fetchers]
             empty = [name for name, r in zip(MARKET_NAMES, raw) if not r]
             if empty and len(empty) < len(raw):
+                if d < now.date():
+                    # 過去的日子不可能「尚未公布」：多半是來源版面變動，明確回報失敗
+                    msg = f"{'、'.join(empty)} 在 {d.isoformat()} 無資料，另一市場有資料（版面可能變更）"
+                    log.error("%s %s", dataset, msg)
+                    return JobResult(dataset, "failed", last_iso, total, msg)
                 # 只有部分市場已公布：整天不寫，下次再補
                 msg = f"partial: {'、'.join(empty)} not yet published for {d.isoformat()}"
                 log.warning("%s %s", dataset, msg)
