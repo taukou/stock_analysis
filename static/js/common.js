@@ -106,15 +106,20 @@
   }
 
   // 導覽列 scroll-spy：sectionTops 為各區塊頂端的文件座標（區塊隱藏時給 null）。
-  // 頂端已越過視窗 40% 高度線的區塊中，取最後一個；都還沒到就取第一個可見區塊；全部隱藏回 -1
-  function activeSection(sectionTops, scrollY, viewportH) {
-    const line = scrollY + viewportH * 0.4;
-    let active = -1, first = -1;
+  // 偵測線 = scrollY + min(視窗高 40%, 120px)：點擊分頁會把區塊頂端捲到視窗頂（含 scroll-margin 80px），
+  // 偵測線限制在 120px 內，短區塊（自選股 1～3 列）被點擊後不會被下一區塊搶走。
+  // 偵測線以上的區塊取最後一個；都還沒到取第一個可見區塊；捲到頁面最底時最後一個可見區塊勝出；全部隱藏回 -1
+  const PROBE_MAX = 120;
+  function activeSection(sectionTops, scrollY, viewportH, docH) {
+    const line = scrollY + Math.min(viewportH * 0.4, PROBE_MAX);
+    let active = -1, first = -1, last = -1;
     (sectionTops || []).forEach((top, i) => {
       if (typeof top !== "number" || !isFinite(top)) return;
       if (first < 0) first = i;
+      last = i;
       if (top <= line) active = i;
     });
+    if (last >= 0 && typeof docH === "number" && scrollY + viewportH >= docH - 2) return last;
     return active >= 0 ? active : first;
   }
 
@@ -143,7 +148,7 @@
     }
     function update() {
       if (Date.now() < clickLock) return;   // 點擊後的平滑捲動途中不讓高亮跳回去
-      const i = activeSection(tops(), window.scrollY, window.innerHeight);
+      const i = activeSection(tops(), window.scrollY, window.innerHeight, document.documentElement.scrollHeight);
       if (i !== current) setActive(i);
     }
     let ticking = false;
@@ -157,14 +162,16 @@
       setActive(i);
       clickLock = Date.now() + 900;
       t.target.scrollIntoView({ behavior: "smooth", block: "start" });
-      setTimeout(update, 950);
+      setTimeout(() => { update(); movePill(current); }, 950);
     }));
     // 初次定位不要動畫（pill 還沒有位置）
     pill.style.transition = "none";
-    setActive(activeSection(tops(), window.scrollY, window.innerHeight));
+    setActive(activeSection(tops(), window.scrollY, window.innerHeight, document.documentElement.scrollHeight));
     pill.offsetWidth;   // 強制重排
     pill.style.transition = "";
-    return { refresh: () => { current = -2; update(); } };
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => movePill(current));
+    // 分頁顯示／隱藏後版面改變：立刻重新定位高亮（鎖定期間不改選中項，鎖定結束時會再校正一次）
+    return { refresh: () => { movePill(current); update(); } };
   }
 
   const api = { freshnessClass, freshnessTooltip, searchUrl, mountFreshness, mountSearch, activeSection, mountNavTabs };

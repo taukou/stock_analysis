@@ -29,11 +29,15 @@ def get_client():
     return client
 
 
+_TRANSIENT = (httpx.ReadError, httpx.RemoteProtocolError, httpx.ConnectError,
+              httpx.ReadTimeout, httpx.PoolTimeout)
+
+
 def run_query(query):
-    """執行查詢；連線重用造成的暫時性錯誤（ReadError／RemoteProtocolError）只重試一次。"""
+    """執行查詢；暫時性連線錯誤（ReadError／RemoteProtocolError／ConnectError／ReadTimeout／PoolTimeout，讀取可安全重送）只重試一次。"""
     try:
         return query.execute()
-    except (httpx.ReadError, httpx.RemoteProtocolError):
+    except _TRANSIENT:
         return query.execute()
 
 
@@ -65,19 +69,17 @@ def get_company_analysis(company_id):
     try:
         # company_id 可能是 stock_id（數字）或 company_name（中文）
         # 先嘗試按 stock_id 查詢
-        basic_res = get_client().table("companies") \
+        basic_res = run_query(get_client().table("companies") \
             .select("*") \
             .eq("stock_id", company_id) \
-            .limit(1) \
-            .execute()
+            .limit(1))
         
         # 如果沒找到，嘗試按 company_name 查詢
         if not basic_res.data or len(basic_res.data) == 0:
-            basic_res = get_client().table("companies") \
+            basic_res = run_query(get_client().table("companies") \
                 .select("*") \
                 .eq("company_name", company_id) \
-                .limit(1) \
-                .execute()
+                .limit(1))
         
         if not basic_res.data or len(basic_res.data) == 0:
             print(f"❌ Company not found: {company_id}")
@@ -91,22 +93,20 @@ def get_company_analysis(company_id):
             return None
         
         # 2. 獲取成長動能（最新月份資料）
-        growth_res = get_client().table("growth_momentum") \
+        growth_res = run_query(get_client().table("growth_momentum") \
             .select("*") \
             .eq("stock_id", stock_id) \
             .order("data_month", desc=True) \
-            .limit(1) \
-            .execute()
+            .limit(1))
         
         growth = growth_res.data[0] if growth_res.data else None
         
         # 3. 獲取籌碼面資訊（最新交易日資料）
-        smart_money_res = get_client().table("smart_money_flow") \
+        smart_money_res = run_query(get_client().table("smart_money_flow") \
             .select("*") \
             .eq("stock_id", stock_id) \
             .order("trade_date", desc=True) \
-            .limit(1) \
-            .execute()
+            .limit(1))
         
         smart_money = smart_money_res.data[0] if smart_money_res.data else None
         

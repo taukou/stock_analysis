@@ -59,16 +59,28 @@ test("Enter during debounce searches the current text, not the previous hits", a
   assert.deepStrictEqual(env.fetched, ["聯", "台積"]);   // 被 Enter 取代的計時器不會再查一次
 });
 
-test("activeSection picks last section above the 40% line", () => {
+test("activeSection picks last section above the probe line (min(40%, 120px))", () => {
   const tops = [0, 900, 1500];
   assert.strictEqual(C.activeSection(tops, 0, 900), 0);
-  assert.strictEqual(C.activeSection(tops, 539, 900), 0);   // 線在 899
-  assert.strictEqual(C.activeSection(tops, 540, 900), 1);   // 線在 900
-  assert.strictEqual(C.activeSection(tops, 1200, 900), 2);
+  assert.strictEqual(C.activeSection(tops, 779, 900), 0);   // 線在 899
+  assert.strictEqual(C.activeSection(tops, 780, 900), 1);   // 線在 900
+  assert.strictEqual(C.activeSection(tops, 1400, 900), 2);
+});
+test("activeSection keeps a short clicked section active", () => {
+  // 自選股短（頂端 700，下一區塊 1000）：點擊後 scrollY = 700，不可跳到產業列表
+  assert.strictEqual(C.activeSection([0, 700, 1000], 700, 800, 3000), 1);
+  // 產業列表有 scroll-margin 80px：點擊後頂端在視窗 80px 處，仍歸產業列表
+  assert.strictEqual(C.activeSection([0, 700, 1000], 920, 800, 3000), 2);
+  // 同一組 tops 用 [0,0,300] 的形狀：自選股頂端 0 且 scrollY 0
+  assert.strictEqual(C.activeSection([0, 0, 300], 0, 800, 3000), 1);
+});
+test("activeSection: bottom of page picks the last visible section", () => {
+  assert.strictEqual(C.activeSection([0, 700, 1000], 700, 800, 1500), 2);
+  assert.strictEqual(C.activeSection([0, 700, null], 700, 800, 1500), 1);
 });
 test("activeSection skips hidden sections", () => {
   assert.strictEqual(C.activeSection([0, null, 1500], 600, 900), 0);
-  assert.strictEqual(C.activeSection([0, null, 1500], 1200, 900), 2);
+  assert.strictEqual(C.activeSection([0, null, 1500], 1400, 900), 2);
   assert.strictEqual(C.activeSection([null, 800, 1500], 0, 900), 1);   // 都還沒到：第一個可見
   assert.strictEqual(C.activeSection([null, null], 0, 900), -1);
   assert.strictEqual(C.activeSection([], 0, 900), -1);

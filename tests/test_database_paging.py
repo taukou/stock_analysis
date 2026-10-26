@@ -74,3 +74,19 @@ def test_run_query_retries_once_on_read_error():
     with pytest.raises(httpx.ReadError):
         database.run_query(q2)
     assert q2.calls == 2
+
+
+def test_run_query_retries_other_transient_errors():
+    import httpx
+
+    class Once:
+        def __init__(self, exc): self.exc, self.calls = exc, 0
+        def execute(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise self.exc
+            return "ok"
+
+    for exc in (httpx.ConnectError("x"), httpx.ReadTimeout("x"), httpx.PoolTimeout("x")):
+        q = Once(exc)
+        assert database.run_query(q) == "ok" and q.calls == 2
