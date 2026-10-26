@@ -2,31 +2,59 @@
 (function (root) {
   const isNil = v => v === null || v === undefined;
 
-  // ---- 總覽：上中下游三欄，每欄節點依序等距排列；太擠時左右交錯，讓名稱與平均值不被鄰居蓋住 ----
+  // ---- 總覽：上中下游三欄，每欄節點依序排列；太擠時分成幾個左右錯開的小欄，讓名稱與平均值不被鄰居蓋住 ----
+  // 節點多到一欄放不下（如電腦週邊上游 25 個）時，整張圖等比例縮小（scale）再排
   const COLUMN_X = { Upstream: 0.15, Midstream: 0.5, Downstream: 0.85 };
   const HEX_ABOVE = 50, HEX_BELOW = 90;          // 六角形（半徑 45）上緣與下方兩行文字的範圍
-  const STAGGER_DX = 80;
-  function overviewPositions(nodes, width, height, top = 100, bottom = 50) {
+  const SUB_DX = 160;                            // 相鄰小欄的水平距離（縮放前）
+  const COLUMN_W = 0.3;                          // 每一層可用的寬度（佔畫面寬）
+  const MIN_SCALE = 0.55;
+
+  function groupByTier(nodes) {
     const groups = new Map();
     nodes.forEach(n => {
       const key = n.group in COLUMN_X ? n.group : "Midstream";
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(n);
     });
-    const NODE_H = HEX_ABOVE + HEX_BELOW;
-    const span = Math.max(height - top - bottom - NODE_H, 0);   // 第一個與最後一個節點中心的可用距離
-    const out = new Map();
+    return groups;
+  }
+
+  // 一層 k 個節點在縮放 s 下需要幾個小欄：同一小欄上下相鄰需隔開一整個節點高
+  function subColumns(k, s, height, top, bottom) {
+    if (k <= 1) return 1;
+    const nodeH = (HEX_ABOVE + HEX_BELOW) * s;
+    const span = height - top - bottom - nodeH;
+    return span > 0 ? Math.max(1, Math.ceil((k - 1) * nodeH / span)) : Infinity;
+  }
+
+  function overviewPlan(nodes, width, height, top = 100, bottom = 50) {
+    const groups = groupByTier(nodes);
+    const fits = s => [...groups.values()].every(list => {
+      const c = subColumns(list.length, s, height, top, bottom);
+      return c === 1 || c * SUB_DX * s <= width * COLUMN_W;
+    });
+    let scale = 1;
+    while (scale > MIN_SCALE && !fits(scale)) scale = Math.round((scale - 0.05) * 100) / 100;
+
+    const nodeH = (HEX_ABOVE + HEX_BELOW) * scale;
+    const span = Math.max(height - top - bottom - nodeH, 0);   // 第一個與最後一個節點中心的可用距離
+    const positions = new Map();
     groups.forEach((list, key) => {
       const k = list.length;
-      const step = k > 1 ? Math.min(span / (k - 1), 200) : 0;
-      const stagger = k > 1 && step < NODE_H ? STAGGER_DX : 0;
-      const y0 = top + HEX_ABOVE + (span - step * (k - 1)) / 2;   // 整欄垂直置中
+      const c = Math.min(subColumns(k, scale, height, top, bottom), k);
+      const step = k > 1 ? Math.min(span / (k - 1), 200 * scale) : 0;
+      const y0 = top + HEX_ABOVE * scale + (span - step * (k - 1)) / 2;   // 整欄垂直置中
       list.forEach((n, i) => {
-        const dx = stagger ? (i % 2 ? stagger : -stagger) : 0;
-        out.set(n.id, [width * COLUMN_X[key] + dx, y0 + step * i]);
+        const dx = c > 1 ? ((i % c) - (c - 1) / 2) * SUB_DX * scale : 0;
+        positions.set(n.id, [width * COLUMN_X[key] + dx, y0 + step * i]);
       });
     });
-    return out;
+    return { positions, scale };
+  }
+
+  function overviewPositions(nodes, width, height, top = 100, bottom = 50) {
+    return overviewPlan(nodes, width, height, top, bottom).positions;
   }
 
   // ---- 聚焦：公司依目前區間漲跌由強到弱排序（缺值排最後） ----
@@ -102,7 +130,7 @@
     return { sorted, positions: g.cells, scale: g.scale, label: g.label, cellW: g.cellW, cellH: g.cellH };
   }
 
-  const api = { overviewPositions, byChangeDesc, RING_MAX, ringPositions, gridPositions, focusPlan, FULL_RADIUS };
+  const api = { overviewPlan, overviewPositions, byChangeDesc, RING_MAX, ringPositions, gridPositions, focusPlan, FULL_RADIUS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Layout = api;
 })(typeof window !== "undefined" ? window : globalThis);

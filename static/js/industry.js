@@ -41,9 +41,10 @@ function focusArea() {
 function layoutNodes() {
     if (!currentFocusedIndustry) {
         focusLayout = { scale: 1, label: "full" };
-        const pos = Layout.overviewPositions(nodes, width, height);
+        const plan = Layout.overviewPlan(nodes, width, height);
+        overviewScale = plan.scale;
         nodes.forEach(n => {
-            const p = pos.get(n.id);
+            const p = plan.positions.get(n.id);
             if (!p) return;
             [n.tx, n.ty] = p;
             if (!n.dragged) { n.fx = n.tx; n.fy = n.ty; }
@@ -80,6 +81,10 @@ function handleResize() {
     relayout(0.3);
 }
 window.addEventListener("resize", handleResize);
+
+// 總覽節點的縮放（節點很多的產業會整張圖縮小）；聚焦模式一律 1
+let overviewScale = 1;
+function nodeScale(d) { return d.type === "industry" && !currentFocusedIndustry ? overviewScale : 1; }
 
 // 球大小依漲跌幅（25～40），聚焦公司很多時依版面等比例縮小
 function getRadius(d) {
@@ -464,7 +469,7 @@ function update() {
         const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
         // 微彎的弧線：同一欄上下相連時，直線會穿過中間的節點，看起來像從別的節點出發
         const bend = Math.min(len * 0.18, 90), mx = (a.x + b.x) / 2 - dy / len * bend, my = (a.y + b.y) / 2 + dx / len * bend;
-        const ra = getRadius(a) + 2, rb = getRadius(b) + 6;   // 線止於六角形外緣，箭頭才看得到
+        const ra = getRadius(a) * nodeScale(a) + 2, rb = getRadius(b) * nodeScale(b) + 6;   // 線止於六角形外緣，箭頭才看得到
         const ua = Math.hypot(mx - a.x, my - a.y) || 1, ub = Math.hypot(b.x - mx, b.y - my) || 1;
         const x1 = a.x + (mx - a.x) / ua * ra, y1 = a.y + (my - a.y) / ua * ra;
         const x2 = b.x - (b.x - mx) / ub * rb, y2 = b.y - (b.y - my) / ub * rb;
@@ -528,8 +533,7 @@ function update() {
             const group = d3.select(this); const r = getRadius(d); const pad = 40; 
             d.x = Math.max(r + pad, Math.min(currW - r - pad, d.x)); d.y = Math.max(r + pad, Math.min(currH - r - pad, d.y));
             
-            // 💡 取消邊緣縮小效果
-            const scale = 1;
+            const scale = nodeScale(d);
             const opacity = 1;
 
             // 💡 總覽與聚焦模式下的發光分流判定

@@ -52,3 +52,27 @@ test("focus ring for few companies", () => {
   assert.strictEqual(p.label, "full");
   assert.ok(p.positions[0][1] < 350);   // 最強的在 12 點鐘方向
 });
+
+test("overview: very crowded tier shrinks and spreads into several sub-columns without overlap", () => {
+  const nodes = [
+    ...Array.from({ length: 25 }, (_, i) => ({ id: `u${i}`, group: "Upstream" })),
+    ...Array.from({ length: 8 }, (_, i) => ({ id: `d${i}`, group: "Downstream" })),
+  ];
+  const { positions, scale } = L.overviewPlan(nodes, 1440, 900);
+  assert.ok(scale < 1 && scale >= 0.55);
+  const up = Array.from({ length: 25 }, (_, i) => positions.get(`u${i}`));
+  const xs = new Set(up.map(([x]) => x));
+  assert.ok(xs.size >= 3);
+  xs.forEach(x => assert.ok(Math.abs(x - 1440 * 0.15) <= 1440 * 0.15));   // 不跑出上游那一區
+  const nodeH = 140 * scale;
+  for (let i = 0; i < 25; i++) for (let j = i + 1; j < 25; j++) {
+    const [ax, ay] = up[i], [bx, by] = up[j];
+    if (ax === bx) assert.ok(Math.abs(ay - by) >= nodeH - 0.01, `${i} ${j} too close`);
+  }
+  up.forEach(([, y]) => assert.ok(y - 50 * scale >= 100 - 0.01 && y + 90 * scale <= 900 - 50 + 0.01));
+});
+
+test("overview: normal industries keep full size", () => {
+  const nodes = Array.from({ length: 6 }, (_, i) => ({ id: `n${i}`, group: "Downstream" }));
+  assert.strictEqual(L.overviewPlan(nodes, 1440, 900).scale, 1);
+});

@@ -2,6 +2,7 @@
 import threading
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from typing import Callable
 
@@ -109,12 +110,13 @@ def load_snapshot(today: date | None = None) -> dict:
     # 營收讀近 14 個月（本月往回推 14 個月的月初）
     since_month = months_back(today, 14)
     ids = database.fetch_all_company_ids()
-    return build_snapshot(
-        database.fetch_quotes_since(ids, since),
-        database.fetch_ex_rights_since(ids, since),
-        database.fetch_flows_since(ids, since),
-        database.fetch_revenue_since(ids, since_month),
-    )
+    # 四張表同時讀（每個執行緒有自己的連線），公司數上千時冷啟動時間減半
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        quotes = pool.submit(database.fetch_quotes_since, ids, since)
+        ex_rows = pool.submit(database.fetch_ex_rights_since, ids, since)
+        flows = pool.submit(database.fetch_flows_since, ids, since)
+        revenue = pool.submit(database.fetch_revenue_since, ids, since_month)
+        return build_snapshot(quotes.result(), ex_rows.result(), flows.result(), revenue.result())
 
 
 snapshot_cache = SnapshotCache(load_snapshot)

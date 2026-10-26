@@ -43,7 +43,7 @@ def run_query(query):
 
 def get_all_industries():
     """獲取所有大產業清單（用於首頁選單）"""
-    res = run_query(get_client().table("major_industries").select("*"))
+    res = run_query(get_client().table("major_industries").select("*").order("major_id"))
     return res.data
 
 

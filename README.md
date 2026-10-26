@@ -16,6 +16,14 @@ Flask + Supabase + D3 的台灣科技產業鏈地圖（個人使用）：資料�
 - 網站：http://127.0.0.1:8765/
 - 測試：`.venv\Scripts\python.exe -m pytest -q`
 
+## 更新產業與公司清單
+產業節點與各節點公司取自櫃買中心「產業價值鏈資訊平台」(https://ic.tpex.org.tw)。要抓的產業列在 `build_chain_sql.py` 的 `INDUSTRIES`。
+
+1. `.venv\Scripts\python.exe build_chain_sql.py`：抓平台資料、以交易所最新行情核對代號，產生 `db/004_tpex_chains.sql`，摘要寫在 `reports/chain_import.txt`
+2. 把 SQL 整份貼到 Supabase SQL Editor 執行
+
+SQL 只新增／更新、不刪除（手動維護的供應關係線會保留），可重複執行。新節點代號格式為 `M05U01`（大產業＋上中下游 U/M/D＋序號）。
+
 ## 維護供應關係線
 總覽畫面節點間的箭頭線來自 `industry_links` 表，內容由你自己維護。在 Supabase SQL Editor 執行，例如新增 N101 → N201：
 
