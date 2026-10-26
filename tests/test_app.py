@@ -184,3 +184,10 @@ def test_industry_page_escapes_major_id(client, monkeypatch):
     res = client.get("/industry/semi")
     assert res.status_code == 200
     assert 'const majorId = "semi";' in res.get_data(as_text=True)
+
+
+def test_industry_page_has_trend_containers(client):
+    html = client.get("/industry/M01").get_data(as_text=True)
+    for needle in ('id="sb-chart-price"', 'id="sb-chart-yoy"', 'id="sb-chart-flow"',
+                   'id="sb-signals"', 'id="sb-ex-list"', 'id="sb-star"', '/static/js/charts.js'):
+        assert needle in html

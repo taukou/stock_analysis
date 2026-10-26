@@ -78,17 +78,95 @@ function fetchJSON(url) {
     });
 }
 
-// ---- 缺值（null）一律顯示「—」並用中性色，不當成 0 ----
-
 track(d3.json(`/api/industry_nodes/${majorId}`), "載入產業節點").then(data => {
     allIndustryData = data; nodes = data.map(d => ({...d})); handleResize(); update();
 }).catch(showRenderError);
 
-// 💡 側邊欄異步獲取跨表資料
-function openSidebar(stockId) {
-    track(fetchJSON(`/api/company_analysis/${stockId}`), "載入公司資料")
-        .then(res => {
-            if (!res.success) return;
+// ---- 側邊欄趨勢區塊 ----
+function renderReturns(returns) {
+    [1, 5, 20].forEach(p => {
+        const v = returns ? returns[String(p)] : null;
+        const el = document.getElementById(`sb-ret-${p}`);
+        el.innerText = Fmt.fmtSigned(Fmt.isNil(v) ? null : v, "%");
+        el.className = `ret-val ${Fmt.upDownClass(v, 'badge')}`;
+    });
+}
+
+// 區間（近 60 日報價範圍）內的除權息種類 → 除息／除權／除權息
+function exBadgeText(quotes, exRights) {
+    if (!quotes.length) return "";
+    const first = quotes[0].date, last = quotes[quotes.length - 1].date;
+    const kinds = new Set(exRights.filter(r => r.ex_date >= first && r.ex_date <= last).map(r => r.kind));
+    if (!kinds.size) return "";
+    if (kinds.has("除權息") || (kinds.has("除息") && kinds.has("除權"))) return "除權息";
+    return kinds.has("除權") ? "除權" : "除息";
+}
+
+function appendText(parent, cls, text) {
+    const d = document.createElement("div");
+    if (cls) d.className = cls;
+    d.textContent = text;
+    parent.appendChild(d);
+    return d;
+}
+
+function renderTrends(stockId, t) {
+    renderReturns(t.returns);
+
+    const badge = document.getElementById("sb-ex-badge");
+    const badgeText = exBadgeText(t.quotes, t.ex_rights);
+    badge.textContent = badgeText;
+    badge.style.display = badgeText ? "inline-block" : "none";
+
+    const markers = t.ex_rights.map(r => ({
+        date: r.ex_date,
+        label: `${r.ex_date} ${r.kind} 權息值 ${Fmt.isNil(r.total_value) ? "—" : r.total_value.toFixed(2)} 元`
+    }));
+    Charts.lineChart("#sb-chart-price", t.quotes.map(q => ({ date: q.date, close: q.close })), markers);
+    Charts.barChart("#sb-chart-yoy", t.revenue.map(r => ({ label: r.month, value: r.yoy_pct })), { unit: "%" });
+    Charts.barChart("#sb-chart-flow", t.flows.map(f => ({ label: f.date, value: f.trust_lots })), { unit: " 張" });
+    Charts.barChart("#sb-chart-flow-foreign", t.flows.map(f => ({ label: f.date, value: f.foreign_lots })), { unit: " 張" });
+
+    const sig = document.getElementById("sb-signals");
+    sig.innerHTML = "";
+    if (!t.signals.length) appendText(sig, "empty-note", "目前沒有觸發的訊號");
+    t.signals.forEach(s => {
+        const item = document.createElement("div");
+        item.className = "signal-item";
+        appendText(item, "", s.label);
+        appendText(item, "signal-detail", s.detail);
+        sig.appendChild(item);
+    });
+
+    const exl = document.getElementById("sb-ex-list");
+    exl.innerHTML = "";
+    if (!t.ex_rights.length) appendText(exl, "empty-note", "近一年沒有除權息");
+    t.ex_rights.forEach(r => {
+        const v = Fmt.isNil(r.total_value) ? "—" : r.total_value.toFixed(2);
+        appendText(exl, "data-row", `${r.ex_date}　${r.kind}　權息值 ${v} 元`);
+    });
+}
+
+function renderStar(stockId) {
+    const star = document.getElementById("sb-star");
+    const on = Fmt.loadWatchlist(localStorage).includes(stockId);
+    star.textContent = on ? "★" : "☆";
+    star.classList.toggle("on", on);
+    star.setAttribute("aria-label", on ? "移出自選" : "加入自選");
+    star.onclick = () => { Fmt.toggleWatch(localStorage, stockId); renderStar(stockId); };
+}
+
+// 💡 側邊欄異步獲取跨表資料（公司分析＋趨勢同時請求，任一失敗即走 track 錯誤提示）
+let sidebarSeq = 0;
+function openSidebar(companyId) {
+    const stockId = companyId.replace(/^c_/, "");
+    const seq = ++sidebarSeq;
+    track(Promise.all([
+        fetchJSON(`/api/company_analysis/${companyId}`),
+        fetchJSON(`/api/company_trends/${stockId}`)
+    ]), "載入公司資料")
+        .then(([res, trends]) => {
+            if (seq !== sidebarSeq || !res.success) return;
             
             document.getElementById("sb-company-name").innerText = res.basic.company_name;
             document.getElementById("sb-stock-id").innerText = `${res.basic.stock_id} • ${res.basic.market_type || '上市'}`;
@@ -110,8 +188,8 @@ function openSidebar(stockId) {
 
             if (res.smart_money) {
                 document.getElementById("sb-trade-date").innerText = res.smart_money.trade_date;
-                const t_jhang = Fmt.isNil(res.smart_money.trust_net) ? null : Math.round(res.smart_money.trust_net / 1000);
-                const f_jhang = Fmt.isNil(res.smart_money.foreign_net) ? null : Math.round(res.smart_money.foreign_net / 1000);
+                const t_jhang = Fmt.lots(res.smart_money.trust_net);
+                const f_jhang = Fmt.lots(res.smart_money.foreign_net);
                 
                 const t_el = document.getElementById("sb-trust");
                 t_el.innerText = Fmt.fmtSigned(t_jhang, " 張");
@@ -124,7 +202,10 @@ function openSidebar(stockId) {
                 ['sb-trade-date', 'sb-trust', 'sb-foreign'].forEach(id => document.getElementById(id).innerText = '--');
             }
 
+            renderStar(stockId);
+            // 先開面板再畫圖，圖表才量得到容器寬度
             document.getElementById("analysis-sidebar").classList.add("open");
+            renderTrends(stockId, trends);
         }).catch(showRenderError);
 }
 
