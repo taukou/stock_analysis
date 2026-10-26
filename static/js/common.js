@@ -11,6 +11,13 @@
     return `/industry/${e(hit.major_id)}?node=${e(hit.node_id)}&company=${e(hit.stock_id)}`;
   }
 
+  // 新鮮度膠囊的滑鼠提示：每個資料集一行，用中文名稱（API 舊版沒有 label 時退回英文鍵）
+  const STATUS_TEXT = { ok: "正常", failed: "失敗" };
+  function freshnessTooltip(datasets) {
+    return (datasets || []).map(d =>
+      `${d.label || d.dataset}：${d.last_date || "—"}（${STATUS_TEXT[d.status] || d.status || "—"}）`).join("\n");
+  }
+
   function mountFreshness(el) {
     const apply = (cls, text, title) => {
       el.classList.remove(...FRESH_CLASSES);
@@ -21,8 +28,7 @@
     return fetch("/api/freshness")
       .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
       .then(f => {
-        const lines = (f.datasets || []).map(d => `${d.dataset}：${d.last_date || "—"}（${d.status || "—"}）`);
-        apply(freshnessClass(f.level), f.message || "資料狀態未知", lines.join("\n"));
+        apply(freshnessClass(f.level), f.message || "資料狀態未知", freshnessTooltip(f.datasets));
       })
       .catch(() => apply("fresh-stale", "資料狀態未知", ""));
   }
@@ -84,7 +90,7 @@
     input.addEventListener("blur", () => setTimeout(hide, 150));
   }
 
-  const api = { freshnessClass, searchUrl, mountFreshness, mountSearch };
+  const api = { freshnessClass, freshnessTooltip, searchUrl, mountFreshness, mountSearch };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Common = api;
 })(typeof window !== "undefined" ? window : globalThis);
