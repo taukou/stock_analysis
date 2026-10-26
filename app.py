@@ -12,7 +12,7 @@ from database import (
 )
 from freshness import freshness
 from snapshot import snapshot_cache
-from sync.parse import date_to_roc_month
+from sync.parse import months_back
 
 STOCK_ID_RE = re.compile(r"^[0-9A-Z]{4,6}$")
 MAX_COMPANY_IDS = 50
@@ -78,7 +78,7 @@ def parse_period():
     return int(raw)
 
 
-def load_snapshot():
+def get_snapshot_or_503():
     """讀快照；失敗回 503。"""
     try:
         return snapshot_cache.get()
@@ -88,7 +88,7 @@ def load_snapshot():
 
 
 def check_stock_id(stock_id):
-    if not STOCK_ID_RE.match(stock_id):
+    if not STOCK_ID_RE.fullmatch(stock_id):
         raise ApiError("股票代號格式錯誤", 400)
 
 
@@ -101,7 +101,7 @@ def snap_value(snap, section, stock_id, period):
 def api_node_companies(node_id):
     """獲取節點下的公司；change 為區間漲跌幅（快照），缺值回 null"""
     period = parse_period()
-    snap = load_snapshot()
+    snap = get_snapshot_or_503()
     companies = []
     for item in get_node_companies(node_id):
         c = item.get('companies')
@@ -124,7 +124,7 @@ def api_node_companies(node_id):
 def api_industry_heat(major_id):
     """各節點的區間平均漲跌幅；無資料的節點 avg_change 為 null、count 為 0"""
     period = parse_period()
-    snap = load_snapshot()
+    snap = get_snapshot_or_503()
     by_node = {}
     for row in fetch_major_node_companies(major_id):
         by_node.setdefault(row["node_id"], []).append(row["stock_id"])
@@ -144,17 +144,11 @@ def to_lots(shares):
     return None if shares is None else int(math.floor(shares / 1000 + 0.5))
 
 
-def months_back(today, n):
-    """today 往前 n 個月的民國年月字串。"""
-    idx = today.year * 12 + (today.month - 1) - n
-    return date_to_roc_month(date(idx // 12, idx % 12 + 1, 1))
-
-
 @app.route('/api/company_trends/<stock_id>')
 def api_company_trends(stock_id):
     """個股趨勢：區間漲跌（快照）、近 60 日收盤量、近 12 月營收、近 20 日法人、近一年除權息"""
     check_stock_id(stock_id)
-    snap = load_snapshot()
+    snap = get_snapshot_or_503()
     today = date.today()
     ids = [stock_id]
     since_100d = (today - timedelta(days=100)).isoformat()

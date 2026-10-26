@@ -1,9 +1,8 @@
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 
 import app as app_module
-from app import months_back
 
 
 @pytest.fixture
@@ -81,11 +80,19 @@ def test_industry_heat(client, monkeypatch):
 
 def test_company_trends_rejects_bad_id(client):
     assert client.get("/api/company_trends/23;30").status_code == 400
+    assert client.get("/api/company_trends/2330%0A").status_code == 400
 
 
 def test_company_trends_shape(client, monkeypatch):
     monkeypatch.setattr(app_module, "snapshot_cache", FakeCache())
     seen = {}
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 26)
+
+    monkeypatch.setattr(app_module, "date", FixedDate)
 
     def quotes(ids, since):
         seen["quotes"] = since
@@ -121,8 +128,7 @@ def test_company_trends_shape(client, monkeypatch):
     assert d["revenue"][1]["yoy_pct"] is None
     assert [e["ex_date"] for e in d["ex_rights"]] == ["2026-07-05", "2026-01-05"]
     assert d["signals"] == SNAP["signals"]["2330"]
-    assert seen["quotes"] == (date.today() - timedelta(days=100)).isoformat()
-    assert seen["revenue"] == months_back(date.today(), 14)
+    assert seen["quotes"] == "2026-07-18" and seen["revenue"] == "114/08"
 
 
 def test_company_trends_unknown_stock_returns_null(client, monkeypatch):

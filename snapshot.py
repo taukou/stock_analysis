@@ -6,7 +6,7 @@ from typing import Callable
 
 import database
 from signals import company_signals
-from sync.parse import date_to_roc_month
+from sync.parse import months_back
 from trends import PERIODS, ex_kind_in_period, period_return, trading_dates
 
 
@@ -71,8 +71,7 @@ def load_snapshot(today: date | None = None) -> dict:
     today = today or date.today()
     since = (today - timedelta(days=45)).isoformat()
     # 營收讀近 14 個月（本月往回推 14 個月的月初）
-    m = today.year * 12 + (today.month - 1) - 14
-    since_month = date_to_roc_month(date(m // 12, m % 12 + 1, 1))
+    since_month = months_back(today, 14)
     ids = database.fetch_all_company_ids()
     return build_snapshot(
         database.fetch_quotes_since(ids, since),

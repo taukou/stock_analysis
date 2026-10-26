@@ -38,6 +38,12 @@ def date_to_roc_month(d: date) -> str:
     return f"{d.year - 1911}/{d.month:02d}"
 
 
+def months_back(today: date, n: int) -> str:
+    """today 往前 n 個月的月初，以民國年月表示（跨年安全）。"""
+    idx = today.year * 12 + (today.month - 1) - n
+    return date_to_roc_month(date(idx // 12, idx % 12 + 1, 1))
+
+
 def parse_twse_sign(raw: str) -> int | None:
     """解析證交所漲跌價差符號（可能包在 HTML 標籤內）：+ → 1、- → -1，其餘 None。"""
     text = _TAG_RE.sub("", raw).strip()
