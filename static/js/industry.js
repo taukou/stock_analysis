@@ -87,6 +87,7 @@ function fetchJSON(url) {
 track(d3.json(`/api/industry_nodes/${majorId}`), "載入產業節點").then(data => {
     allIndustryData = data; nodes = data.map(d => ({...d})); handleResize(); update();
     loadHeat();
+    return openDeepLink();
 }).catch(showRenderError);
 track(fetchJSON(`/api/industry_links/${majorId}`), "載入供應關係").then(ls => {
     supplyLinks = ls; update();
@@ -220,7 +221,7 @@ function closeSidebar() { lastTrends = null; document.getElementById("analysis-s
 
 function enterFocusMode(d, direction = 'center') {
     currentFocusedIndustry = d; closeSidebar();
-    track(fetchJSON(`/api/node_companies/${d.id}?period=${currentPeriod}`), "載入公司清單").then(cs => {
+    return track(fetchJSON(`/api/node_companies/${d.id}?period=${currentPeriod}`), "載入公司清單").then(cs => {
         let startX = width / 2, startY = height / 2;
         if(direction === 'up') startY = height + 200;
         if(direction === 'down') startY = -200;
@@ -235,6 +236,17 @@ function enterFocusMode(d, direction = 'center') {
         d3.select("#btn-back").style("display", "block");
         updateNavButtons(); handleResize(); update();
     }).catch(err => { currentFocusedIndustry = null; showRenderError(err); });
+}
+
+// 搜尋／自選股深連結：?node=N201&company=2330 → 進入該節點，公司清單載完後再開側邊欄
+function openDeepLink() {
+    const q = new URLSearchParams(location.search);
+    const nodeId = q.get("node"), company = q.get("company");
+    const d = nodeId && allIndustryData.find(n => n.id === nodeId);
+    if (!d) return;
+    return enterFocusMode(d).then(() => {
+        if (company && currentFocusedIndustry === d) openSidebar("c_" + company);
+    });
 }
 
 function exitFocusMode() {
@@ -424,3 +436,6 @@ function dragstarted(e, d) { if (!e.active) simulation.alphaTarget(0.3).restart(
 function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
 function dragended(e, d) { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
 svg.call(d3.zoom().on("zoom", (e) => container.attr("transform", e.transform)));
+
+Common.mountFreshness(document.getElementById("freshness"));
+Common.mountSearch(document.getElementById("search-input"), document.getElementById("search-list"));

@@ -198,3 +198,13 @@ def test_industry_page_has_period_switch(client):
     assert 'id="period-switch"' in html
     for p in (1, 5, 20):
         assert f'data-period="{p}"' in html
+
+
+def test_pages_have_freshness_and_search(client, monkeypatch):
+    monkeypatch.setattr(app_module, "get_all_industries", lambda: [])
+    for path in ("/", "/industry/M01"):
+        html = client.get(path).get_data(as_text=True)
+        assert 'id="freshness"' in html
+        assert "/static/js/common.js" in html
+        assert 'type="search"' in html
+    assert 'id="watchlist"' in client.get("/").get_data(as_text=True)

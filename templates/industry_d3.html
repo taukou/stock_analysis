@@ -65,6 +65,8 @@
         #btn-down { bottom: 28px; left: 50%; transform: translateX(-50%); }
         #btn-left { top: 50%; left: 24px; transform: translateY(-50%); }
         #btn-right { top: 50%; right: 24px; transform: translateY(-50%); }
+        /* 左下角膠囊抬高到「上游」標籤（y = 視窗高 − 20）之上，避免重疊 */
+        #freshness { bottom: 44px; }
         #btn-back { top: 16px; right: 16px; background: rgba(255, 70, 100, 0.28); border-color: rgba(255, 140, 160, 0.5); }
 
         /* 區間切換：置於上方中央（top:16px），#btn-up 在其下方 top:68px；狀態橫幅改放下方避免重疊 */
@@ -126,7 +128,10 @@
     <div id="status-banner" class="glass glass-pill" role="status" aria-live="polite"></div>
     <nav id="nav-header" class="glass glass-pill refract" aria-label="導覽">
         <a href="/">← 產業列表</a><span class="sep">/</span><strong>{{ major_id }}</strong>
+        <input id="search-input" class="search-input" type="search" placeholder="搜尋代號／名稱" aria-label="搜尋公司" autocomplete="off">
     </nav>
+    <div id="search-list" class="search-list glass" role="listbox"></div>
+    <div id="freshness" class="glass glass-pill fresh-stale" role="status">資料狀態載入中…</div>
 
     <div id="period-switch" class="glass glass-pill" role="group" aria-label="區間">
         <button type="button" data-period="1" class="active" aria-pressed="true">今日</button>
@@ -195,6 +200,7 @@
 
     <script src="{{ url_for('static', filename='js/format.js') }}"></script>
     <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}"></script>
     <script>
         const majorId = {{ major_id | tojson }};
     </script>
