@@ -31,7 +31,11 @@
         .down-node { fill: #10b981 !important; }
         .stable-node { fill: #64748b !important; }
         .industry-node { stroke: #fff !important; }   /* 填色由 JS 依區間熱度設定（Fmt.heatColor） */
-        .supply-link { stroke: #94a3b8; stroke-opacity: 0.55; stroke-width: 1.2px; pointer-events: none; }
+        .supply-link { fill: none; stroke: #94a3b8; stroke-opacity: 0.55; stroke-width: 1.2px; pointer-events: none; }
+        .supply-hit { fill: none; stroke: transparent; stroke-width: 14px; cursor: help; }
+        .supply .supply-link { transition: stroke 0.2s, stroke-opacity 0.2s; }
+        .supply.hot .supply-link { stroke: #e2e8f0; stroke-opacity: 1; stroke-width: 2px; }
+        .supply.dim .supply-link { stroke-opacity: 0.12; }
         .ex-tag { fill: var(--ex); font-size: 10px; font-weight: 700; pointer-events: none; paint-order: stroke; stroke: rgba(7, 10, 18, 0.85); stroke-width: 3px; }
         .sig-star { fill: #fbbf24; font-size: 13px; cursor: help; paint-order: stroke; stroke: rgba(7, 10, 18, 0.85); stroke-width: 2px; }
         
@@ -67,6 +71,9 @@
         #btn-right { top: 50%; right: 24px; transform: translateY(-50%); }
         /* 左下角膠囊抬高到「上游」標籤（y = 視窗高 − 20）之上，避免重疊 */
         #freshness { bottom: 44px; }
+        /* 右上角供應方向說明（只在總覽顯示；聚焦時右上角給「返回總覽」） */
+        #supply-legend { position: fixed; right: 16px; top: 16px; z-index: 900; padding: 7px 14px; font-size: 12px; color: var(--text-2); max-width: min(520px, calc(100vw - 32px)); }
+        body.focus-mode #supply-legend { display: none; }
         #btn-back { top: 16px; right: 16px; background: rgba(255, 70, 100, 0.28); border-color: rgba(255, 140, 160, 0.5); }
 
         /* 區間切換：置於上方中央（top:16px），#btn-up 在其下方 top:68px；狀態橫幅改放下方避免重疊 */
@@ -132,6 +139,7 @@
     </nav>
     <div id="search-list" class="search-list glass" role="listbox"></div>
     <div id="freshness" class="glass glass-pill" role="status">資料狀態載入中…</div>
+    <div id="supply-legend" class="glass glass-pill" aria-live="polite">箭頭方向 ＝ 供應給（上游 → 下游）</div>
 
     <div id="period-switch" class="glass glass-pill" role="group" aria-label="區間">
         <button type="button" data-period="1" class="active" aria-pressed="true">今日</button>

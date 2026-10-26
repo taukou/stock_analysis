@@ -137,6 +137,27 @@ track(fetchJSON(`/api/industry_links/${majorId}`), "載入供應關係").then(ls
 let currentPeriod = 1;   // 目前選的區間（交易日數），由 #period-switch 切換
 let heatMap = {};        // node_id -> {avg_change, count}（目前區間）
 let supplyLinks = [];    // [{from, to}] 節點供應關係
+
+// 滑過節點或箭頭：只亮相關的供應線，圖例改寫成文字說明供應方向
+const SUPPLY_LEGEND_DEFAULT = "箭頭方向 ＝ 供應給（上游 → 下游）";
+function highlightSupply(nodeId, toId) {
+    const legend = document.getElementById("supply-legend");
+    const groups = supplyLayer.selectAll("g.supply");
+    if (!nodeId || currentFocusedIndustry) {
+        groups.classed("hot", false).classed("dim", false);
+        if (legend) legend.textContent = SUPPLY_LEGEND_DEFAULT;
+        return;
+    }
+    const related = toId ? (l => l.from === nodeId && l.to === toId)
+                         : (l => l.from === nodeId || l.to === nodeId);
+    groups.classed("hot", related).classed("dim", l => !related(l));
+    if (!legend) return;
+    const name = id => (allIndustryData.find(n => n.id === id) || { name: id }).name;
+    if (toId) { legend.textContent = `${name(nodeId)} 供應給 ${name(toId)}`; return; }
+    const out = supplyLinks.filter(l => l.from === nodeId).map(l => name(l.to));
+    const inn = supplyLinks.filter(l => l.to === nodeId).map(l => name(l.from));
+    legend.textContent = `${name(nodeId)}｜供應給：${out.join("、") || "—"}｜來自：${inn.join("、") || "—"}`;
+}
 let lastTrends = null;   // 目前開啟側邊欄的趨勢資料，切區間時重算除權息標籤用
 function renderReturns(returns) {
     [1, 5, 20].forEach(p => {
@@ -280,6 +301,7 @@ let focusSeq = 0;
 function enterFocusMode(d, direction = 'center') {
     const seq = ++focusSeq, period = currentPeriod;
     currentFocusedIndustry = d; closeSidebar(false);
+    document.body.classList.add("focus-mode"); highlightSupply(null);
     return track(fetchJSON(`/api/node_companies/${encodeURIComponent(d.id)}?period=${period}`), "載入公司清單").then(cs => {
         if (seq !== focusSeq) return false;
         let startX = width / 2, startY = height / 2;
@@ -299,7 +321,7 @@ function enterFocusMode(d, direction = 'center') {
         if (period !== currentPeriod) refreshFocusPeriod();
         return true;
     }).catch(err => {
-        if (seq === focusSeq) currentFocusedIndustry = null;
+        if (seq === focusSeq) { currentFocusedIndustry = null; document.body.classList.remove("focus-mode"); }
         showRenderError(err);
         return false;
     });
@@ -320,6 +342,7 @@ function openDeepLink() {
 function exitFocusMode() {
     focusSeq++;   // 進行中的聚焦請求作廢
     currentFocusedIndustry = null; links = []; closeSidebar(false);
+    document.body.classList.remove("focus-mode");
     nodes = allIndustryData.map(d => ({...d}));
     d3.selectAll(".nav-btn").style("display", "none");
     handleResize(); update();
@@ -424,16 +447,28 @@ document.querySelectorAll("#period-switch button").forEach(b => b.addEventListen
 function update() {
     const nodeById = new Map(nodes.map(n => [n.id, n]));
     const supplyData = currentFocusedIndustry ? [] : supplyLinks.filter(l => nodeById.has(l.from) && nodeById.has(l.to));
-    const supply = supplyLayer.selectAll("line.supply-link").data(supplyData, d => `${d.from}-${d.to}`);
+    // 每條供應關係 = 可見細線＋透明粗線（方便滑鼠指到，顯示「A 供應給 B」）
+    const supply = supplyLayer.selectAll("g.supply").data(supplyData, d => `${d.from}-${d.to}`);
     supply.exit().remove();
-    const supplyAll = supply.enter().append("line").attr("class", "supply-link").attr("marker-end", "url(#supply-arrow)").merge(supply);
+    const supplyEnter = supply.enter().append("g").attr("class", "supply");
+    supplyEnter.append("path").attr("class", "supply-link").attr("marker-end", "url(#supply-arrow)");
+    supplyEnter.append("path").attr("class", "supply-hit")
+        .on("mouseenter", (e, l) => highlightSupply(l.from, l.to))
+        .on("mouseleave", () => highlightSupply(null))
+        .append("title");
+    const supplyAll = supplyEnter.merge(supply);
+    supplyAll.select("title").text(l => `${nodeById.get(l.from).name} 供應給 ${nodeById.get(l.to).name}`);
     const placeSupply = () => supplyAll.each(function (l) {
         const a = nodeById.get(l.from), b = nodeById.get(l.to);
         if (!a || !b || a.x == null || b.x == null) return;
         const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+        // 微彎的弧線：同一欄上下相連時，直線會穿過中間的節點，看起來像從別的節點出發
+        const bend = Math.min(len * 0.18, 90), mx = (a.x + b.x) / 2 - dy / len * bend, my = (a.y + b.y) / 2 + dx / len * bend;
         const ra = getRadius(a) + 2, rb = getRadius(b) + 6;   // 線止於六角形外緣，箭頭才看得到
-        d3.select(this).attr("x1", a.x + dx / len * ra).attr("y1", a.y + dy / len * ra)
-            .attr("x2", b.x - dx / len * rb).attr("y2", b.y - dy / len * rb);
+        const ua = Math.hypot(mx - a.x, my - a.y) || 1, ub = Math.hypot(b.x - mx, b.y - my) || 1;
+        const x1 = a.x + (mx - a.x) / ua * ra, y1 = a.y + (my - a.y) / ua * ra;
+        const x2 = b.x - (b.x - mx) / ub * rb, y2 = b.y - (b.y - my) / ub * rb;
+        d3.select(this).selectAll("path").attr("d", `M${x1},${y1} Q${mx},${my} ${x2},${y2}`);
     });
 
     const link = linkLayer.selectAll(".link").data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
@@ -446,6 +481,8 @@ function update() {
     const nodeEnter = node.enter().append("g").attr("class", "node-group")
         .style("opacity", 0)
         .call(d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended))
+        .on("mouseenter", (e, d) => { if (d.type === "industry") highlightSupply(d.id); })
+        .on("mouseleave", (e, d) => { if (d.type === "industry") highlightSupply(null); })
         .on("click", (e, d) => {
             if (d.type === "industry" && !currentFocusedIndustry) {
                 enterFocusMode(d);
