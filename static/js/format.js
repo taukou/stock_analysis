@@ -23,6 +23,16 @@
 
   const lots = shares => isNil(shares) ? null : Math.round(shares / 1000);
 
+  // 最近 n 個交易日窗口 (dates[len-1-n], dates[len-1]] 內的除權息種類；資料不足 n+1 筆 → null
+  function exKindInWindow(exRights, quoteDates, n) {
+    if (!quoteDates || quoteDates.length < n + 1) return null;
+    const lo = quoteDates[quoteDates.length - 1 - n], hi = quoteDates[quoteDates.length - 1];
+    const kinds = new Set((exRights || []).filter(r => r.ex_date > lo && r.ex_date <= hi).map(r => r.kind));
+    if (!kinds.size) return null;
+    if (kinds.has("除權息") || (kinds.has("除息") && kinds.has("除權"))) return "除權息";
+    return kinds.has("除權") ? "除權" : "除息";
+  }
+
   const WATCH_KEY = "stockchain.watchlist";
   function loadWatchlist(storage) {
     try {
@@ -44,7 +54,7 @@
     }
   }
 
-  const api = { isNil, fmtNum, fmtSigned, upDownClass, HEAT_SCALE, heatColor, lots, WATCH_KEY, loadWatchlist, toggleWatch };
+  const api = { isNil, fmtNum, fmtSigned, upDownClass, HEAT_SCALE, heatColor, lots, exKindInWindow, WATCH_KEY, loadWatchlist, toggleWatch };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Fmt = api;
 })(typeof window !== "undefined" ? window : globalThis);

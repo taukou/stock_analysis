@@ -5,6 +5,7 @@
  * 其他瀏覽器退回一般模糊。
  */
 :root {
+    --ex: #f5a524;   /* 除權息標記色 */
     --glass-tint: rgba(255, 255, 255, 0.08);
     --glass-tint-strong: rgba(255, 255, 255, 0.14);
     --glass-edge: rgba(255, 255, 255, 0.22);

@@ -83,6 +83,7 @@ track(d3.json(`/api/industry_nodes/${majorId}`), "載入產業節點").then(data
 }).catch(showRenderError);
 
 // ---- 側邊欄趨勢區塊 ----
+let currentPeriod = 1;   // 目前選的區間（交易日數）；Task 7 的切換會改它
 function renderReturns(returns) {
     [1, 5, 20].forEach(p => {
         const v = returns ? returns[String(p)] : null;
@@ -90,16 +91,6 @@ function renderReturns(returns) {
         el.innerText = Fmt.fmtSigned(Fmt.isNil(v) ? null : v, "%");
         el.className = `ret-val ${Fmt.upDownClass(v, 'badge')}`;
     });
-}
-
-// 區間（近 60 日報價範圍）內的除權息種類 → 除息／除權／除權息
-function exBadgeText(quotes, exRights) {
-    if (!quotes.length) return "";
-    const first = quotes[0].date, last = quotes[quotes.length - 1].date;
-    const kinds = new Set(exRights.filter(r => r.ex_date >= first && r.ex_date <= last).map(r => r.kind));
-    if (!kinds.size) return "";
-    if (kinds.has("除權息") || (kinds.has("除息") && kinds.has("除權"))) return "除權息";
-    return kinds.has("除權") ? "除權" : "除息";
 }
 
 function appendText(parent, cls, text) {
@@ -114,7 +105,7 @@ function renderTrends(stockId, t) {
     renderReturns(t.returns);
 
     const badge = document.getElementById("sb-ex-badge");
-    const badgeText = exBadgeText(t.quotes, t.ex_rights);
+    const badgeText = Fmt.exKindInWindow(t.ex_rights, t.quotes.map(q => q.date), currentPeriod) || "";
     badge.textContent = badgeText;
     badge.style.display = badgeText ? "inline-block" : "none";
 
@@ -172,10 +163,6 @@ function openSidebar(companyId) {
             document.getElementById("sb-stock-id").innerText = `${res.basic.stock_id} • ${res.basic.market_type || '上市'}`;
             document.getElementById("sb-price").innerText = Fmt.fmtNum(res.basic.latest_price, " 元");
             
-            const changeEl = document.getElementById("sb-change");
-            const chg = res.basic.latest_change;
-            changeEl.innerText = Fmt.fmtSigned(chg, "%");
-            changeEl.className = `data-value ${Fmt.upDownClass(chg, 'badge')}`;
 
             if (res.growth) {
                 document.getElementById("sb-month").innerText = res.growth.data_month;
@@ -205,11 +192,12 @@ function openSidebar(companyId) {
             renderStar(stockId);
             // 先開面板再畫圖，圖表才量得到容器寬度
             document.getElementById("analysis-sidebar").classList.add("open");
+            document.body.classList.add("sidebar-open");
             renderTrends(stockId, trends);
         }).catch(showRenderError);
 }
 
-function closeSidebar() { document.getElementById("analysis-sidebar").classList.remove("open"); }
+function closeSidebar() { document.getElementById("analysis-sidebar").classList.remove("open"); document.body.classList.remove("sidebar-open"); }
 
 function enterFocusMode(d, direction = 'center') {
     currentFocusedIndustry = d; closeSidebar();

@@ -17,6 +17,12 @@
       .style("fill", "var(--text-2)").style("font-size", "12px").text("—");
   }
 
+  // 底部軸：第一個標籤靠左對齊、最後一個靠右對齊，避免被裁切
+  function anchorEnds(g) {
+    const t = g.selectAll(".tick text").nodes();
+    if (t.length > 1) { t[0].setAttribute("text-anchor", "start"); t[t.length - 1].setAttribute("text-anchor", "end"); }
+  }
+
   function styleAxis(g) {
     g.selectAll("text").style("fill", "var(--text-2)").style("font-size", "10px");
     g.selectAll("path, line").style("stroke", "var(--text-3)");
@@ -32,7 +38,7 @@
     const y = d3.scaleLinear().domain([lo - pad, hi + pad]).range([H - M.bottom, M.top]);
     const tickDates = [points[0].date, points[points.length - 1].date];
     styleAxis(svg.append("g").attr("transform", `translate(0,${H - M.bottom})`)
-      .call(d3.axisBottom(x).tickValues(tickDates).tickFormat(d => d.slice(5)).tickSizeOuter(0)));
+      .call(d3.axisBottom(x).tickValues(tickDates).tickFormat(d => d.slice(5)).tickSizeOuter(0)).call(anchorEnds));
     styleAxis(svg.append("g").attr("transform", `translate(${M.left},0)`)
       .call(d3.axisLeft(y).ticks(3).tickSizeOuter(0)));
     const line = d3.line().defined(p => !isNil(p.close)).x(p => x(p.date)).y(p => y(p.close));
@@ -43,7 +49,7 @@
       const p = byDate.get(m.date);
       if (!p || isNil(p.close)) return;
       svg.append("circle").attr("cx", x(p.date)).attr("cy", y(p.close)).attr("r", 4)
-        .style("fill", "#f5a524").style("stroke", "#fff").style("stroke-width", 1)
+        .style("fill", "var(--ex)").style("stroke", "#fff").style("stroke-width", 1)
         .append("title").text(m.label);
     });
   }
@@ -58,7 +64,7 @@
     const y = d3.scaleLinear().domain([Math.min(0, ext[0]), Math.max(0, ext[1])]).nice().range([H - M.bottom, M.top]);
     const labels = bars.map(b => b.label);
     styleAxis(svg.append("g").attr("transform", `translate(0,${H - M.bottom})`)
-      .call(d3.axisBottom(x).tickValues([labels[0], labels[labels.length - 1]]).tickSize(0)));
+      .call(d3.axisBottom(x).tickValues([labels[0], labels[labels.length - 1]]).tickSize(0)).call(anchorEnds));
     styleAxis(svg.append("g").attr("transform", `translate(${M.left},0)`)
       .call(d3.axisLeft(y).ticks(3).tickSizeOuter(0)));
     svg.append("line").attr("x1", M.left).attr("x2", w - M.right).attr("y1", y(0)).attr("y2", y(0))
