@@ -118,3 +118,145 @@ def get_company_analysis(company_id):
     except Exception as e:
         print(f"❌ Error fetching company analysis for {company_id}: {e}")
         return None
+
+# ---------------------------------------------------------------------------
+# 趨勢讀取層（全部使用匿名 client，只讀）
+# ---------------------------------------------------------------------------
+
+def fetch_all(build, page: int = 1000) -> list[dict]:
+    """分頁讀完整個查詢：build() 每次回傳新的 query builder，讀到不足一頁為止。"""
+    rows: list = []
+    start = 0
+    while True:
+        data = build().range(start, start + page - 1).execute().data or []
+        rows.extend(data)
+        if len(data) < page:
+            return rows
+        start += page
+
+
+def chunks(ids: list[str], size: int = 150) -> list[list[str]]:
+    """把代號清單切成固定大小的批次（避免 in_ 條件過長）。"""
+    return [ids[i:i + size] for i in range(0, len(ids), size)]
+
+
+def fetch_all_company_ids() -> list[str]:
+    rows = fetch_all(lambda: get_client().table("companies")
+                     .select("stock_id").order("stock_id"))
+    return [r["stock_id"] for r in rows]
+
+
+def _fetch_by_ids(table: str, columns: str, ids: list[str], date_col: str, since: str) -> list[dict]:
+    rows: list[dict] = []
+    for batch in chunks(ids):
+        rows.extend(fetch_all(lambda b=batch: get_client().table(table)
+                              .select(columns)
+                              .in_("stock_id", b)
+                              .gte(date_col, since)
+                              .order(date_col)
+                              .order("stock_id")))
+    return rows
+
+
+def fetch_quotes_since(ids: list[str], since: str) -> list[dict]:
+    return _fetch_by_ids("daily_quotes",
+                         "stock_id, trade_date, market, close, change_pct, volume",
+                         ids, "trade_date", since)
+
+
+def fetch_ex_rights_since(ids: list[str], since: str) -> list[dict]:
+    return _fetch_by_ids("ex_rights",
+                         "stock_id, ex_date, kind, prev_close, ref_price, total_value",
+                         ids, "ex_date", since)
+
+
+def fetch_flows_since(ids: list[str], since: str) -> list[dict]:
+    return _fetch_by_ids("smart_money_flow",
+                         "stock_id, trade_date, trust_net, foreign_net",
+                         ids, "trade_date", since)
+
+
+def fetch_revenue_since(ids: list[str], since_month: str) -> list[dict]:
+    return _fetch_by_ids("growth_momentum",
+                         "stock_id, data_month, revenue, yoy_pct",
+                         ids, "data_month", since_month)
+
+
+def fetch_sync_runs(limit: int = 50) -> list[dict]:
+    res = (get_client().table("sync_runs")
+           .select("id, dataset, status, last_date, rows, message, finished_at")
+           .order("finished_at", desc=True)
+           .limit(limit)
+           .execute())
+    return res.data or []
+
+
+def fetch_major_node_companies(major_id) -> list[dict]:
+    """該大產業所有節點的公司對應：[{node_id, stock_id}]。"""
+    node_ids = [n["node_id"] for n in fetch_industry_nodes(major_id)]
+    if not node_ids:
+        return []
+    return fetch_all(lambda: get_client().table("company_node_mapping")
+                     .select("node_id, stock_id")
+                     .in_("node_id", node_ids)
+                     .order("node_id").order("stock_id"))
+
+
+def _first_node(mapping) -> tuple:
+    """取嵌入的 company_node_mapping 第一筆的 (node_id, major_id)。"""
+    if not mapping:
+        return None, None
+    first = mapping[0]
+    node = first.get("value_chain_nodes") or {}
+    if isinstance(node, list):
+        node = node[0] if node else {}
+    return first.get("node_id"), node.get("major_id")
+
+
+def fetch_companies(ids: list[str]) -> list[dict]:
+    rows: list[dict] = []
+    for batch in chunks(ids):
+        res = (get_client().table("companies")
+               .select("stock_id, company_name, market_type, latest_price, latest_change, "
+                       "company_node_mapping(node_id, value_chain_nodes(major_id))")
+               .in_("stock_id", batch)
+               .execute())
+        for r in res.data or []:
+            node_id, major_id = _first_node(r.pop("company_node_mapping", None))
+            r["node_id"], r["major_id"] = node_id, major_id
+            rows.append(r)
+    return rows
+
+
+def search_companies(q: str, limit: int = 20) -> list[dict]:
+    """代號前綴或名稱包含（不分大小寫）；先移除 PostgREST 篩選語法的特殊字元。"""
+    for ch in ",()*%\\":
+        q = q.replace(ch, "")
+    q = q.strip()
+    if not q:
+        return []
+    res = (get_client().table("companies")
+           .select("stock_id, company_name, company_node_mapping(node_id, value_chain_nodes(major_id))")
+           .or_(f"stock_id.ilike.{q}*,company_name.ilike.*{q}*")
+           .order("stock_id")
+           .limit(limit)
+           .execute())
+    out = []
+    for r in res.data or []:
+        node_id, major_id = _first_node(r.get("company_node_mapping"))
+        out.append({"stock_id": r["stock_id"], "company_name": r["company_name"],
+                    "node_id": node_id, "major_id": major_id})
+    return out
+
+
+def fetch_industry_links(major_id) -> list[dict]:
+    """兩端都屬於該大產業節點的產業鏈連線：[{from, to}]。"""
+    node_ids = {n["node_id"] for n in fetch_industry_nodes(major_id)}
+    if not node_ids:
+        return []
+    rows = fetch_all(lambda: get_client().table("industry_links")
+                     .select("link_id, from_node_id, to_node_id")
+                     .in_("from_node_id", list(node_ids))
+                     .order("link_id"))
+    return [{"from": r["from_node_id"], "to": r["to_node_id"]}
+            for r in rows if r["to_node_id"] in node_ids]
