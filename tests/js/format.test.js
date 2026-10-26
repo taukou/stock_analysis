@@ -40,3 +40,18 @@ test("exKindInWindow", () => {
   assert.strictEqual(F.exKindInWindow(ex("除息"), dates, 6), null);
   assert.strictEqual(F.exKindInWindow([{ ex_date: "05", kind: "除息" }, { ex_date: "06", kind: "除權" }], dates, 5), "除權息");
 });
+
+test("zero is a value, not missing", () => {
+  assert.strictEqual(F.fmtNum(0), "0");
+  assert.strictEqual(F.fmtNum(0, " 元"), "0 元");
+  assert.strictEqual(F.fmtSigned(0), "0");
+});
+test("watchlist with blocked storage", () => {
+  assert.strictEqual(F.safeStorage(() => { throw new Error("SecurityError"); }), null);
+  const mem = { d: {}, getItem(k) { return this.d[k] ?? null; }, setItem(k, v) { this.d[k] = v; } };
+  assert.strictEqual(F.safeStorage(() => mem), mem);
+  const full = { getItem() { return '["2330"]'; }, setItem() { throw new Error("QuotaExceededError"); } };
+  assert.strictEqual(F.toggleWatch(full, "2454"), null);
+  assert.strictEqual(F.toggleWatch(null, "2454"), null);
+  assert.deepStrictEqual(F.loadWatchlist(full), ["2330"]);
+});

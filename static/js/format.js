@@ -34,6 +34,10 @@
   }
 
   const WATCH_KEY = "stockchain.watchlist";
+  // 取 localStorage：網站資料被封鎖時連讀取 window.localStorage 本身都會丟 SecurityError → 回 null
+  function safeStorage(get = () => root.localStorage) {
+    try { return get() || null; } catch (e) { return null; }
+  }
   function loadWatchlist(storage) {
     try {
       const list = JSON.parse(storage.getItem(WATCH_KEY));
@@ -42,6 +46,7 @@
       return [];
     }
   }
+  // 加入回 true、移除回 false、無法寫入（儲存空間不可用）回 null
   function toggleWatch(storage, id) {
     try {
       const list = loadWatchlist(storage);
@@ -50,11 +55,11 @@
       storage.setItem(WATCH_KEY, JSON.stringify(list));
       return i < 0;
     } catch (e) {
-      return false;
+      return null;
     }
   }
 
-  const api = { isNil, fmtNum, fmtSigned, upDownClass, HEAT_SCALE, heatColor, lots, exKindInWindow, WATCH_KEY, loadWatchlist, toggleWatch };
+  const api = { isNil, fmtNum, fmtSigned, upDownClass, HEAT_SCALE, heatColor, lots, exKindInWindow, WATCH_KEY, safeStorage, loadWatchlist, toggleWatch };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Fmt = api;
 })(typeof window !== "undefined" ? window : globalThis);

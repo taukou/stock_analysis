@@ -232,9 +232,7 @@
         (function () {
             const section = document.getElementById('watchlist');
             const box = document.getElementById('watch-box');
-            let ids = [];
-            try { ids = Fmt.loadWatchlist(window.localStorage); } catch (e) { ids = []; }
-            ids = ids.slice(0, 50);
+            const ids = Fmt.loadWatchlist(Fmt.safeStorage()).slice(0, 50);
             if (!ids.length) return;
             fetch('/api/companies?ids=' + encodeURIComponent(ids.join(',')))
                 .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })

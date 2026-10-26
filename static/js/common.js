@@ -68,23 +68,38 @@
       list.style.display = "block";
     }
 
+    // 查詢目前輸入；回傳的 promise 給出該次結果，被較新的查詢取代時給 null
+    let latest = null;
+    function search(q) {
+      const mine = ++seq;
+      latest = fetch(`/api/search?q=${encodeURIComponent(q)}`)
+        .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+        .then(rows => { if (mine !== seq) return null; hits = rows; render(); return rows; })
+        .catch(() => { if (mine === seq) hide(); return null; });
+      return latest;
+    }
+
     input.addEventListener("input", () => {
-      clearTimeout(timer);
+      clearTimeout(timer); timer = null;
+      hits = [];   // 舊查詢的結果不再適用（Enter 不可導向上一個查詢的結果）
       const q = input.value.trim();
-      if (!q) { seq++; hide(); return; }
-      timer = setTimeout(() => {
-        const mine = ++seq;
-        fetch(`/api/search?q=${encodeURIComponent(q)}`)
-          .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
-          .then(rows => { if (mine !== seq) return; hits = rows; render(); })
-          .catch(() => { if (mine === seq) hide(); });
-      }, 250);
+      if (!q) { seq++; latest = null; hide(); return; }
+      timer = setTimeout(() => { timer = null; search(q); }, 250);
     });
     input.addEventListener("keydown", ev => {
-      if (ev.key === "Escape") { seq++; hide(); input.blur(); }
+      if (ev.key === "Escape") { clearTimeout(timer); timer = null; seq++; latest = null; hide(); input.blur(); }
       else if (ev.key === "Enter") {
-        const hit = hits.find(h => searchUrl(h));
-        if (hit) go(hit);
+        // 還在 debounce：立刻查目前輸入；查詢進行中：等它回來
+        let pending = latest;
+        if (timer) {
+          clearTimeout(timer); timer = null;
+          const q = input.value.trim();
+          pending = q ? search(q) : null;
+        }
+        Promise.resolve(pending ? pending : hits).then(rows => {
+          const hit = (rows || []).find(h => searchUrl(h));
+          if (hit) go(hit);
+        });
       }
     });
     input.addEventListener("blur", () => setTimeout(hide, 150));
