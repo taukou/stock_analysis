@@ -31,11 +31,12 @@ test("watchlist survives broken storage", () => {
 test("exKindInWindow", () => {
   const dates = ["01", "02", "03", "04", "05", "06"];
   const ex = k => [{ ex_date: "05", kind: k }];
-  assert.strictEqual(F.exKindInWindow(ex("除息"), dates, 1), "除息");
+  assert.strictEqual(F.exKindInWindow(ex("除息"), dates, 2), "除息");
+  assert.strictEqual(F.exKindInWindow(ex("除息"), dates, 1), null);
   assert.strictEqual(F.exKindInWindow(ex("除息"), dates, 5), "除息");
   assert.strictEqual(F.exKindInWindow([{ ex_date: "02", kind: "除息" }], dates, 3), null);
-  assert.strictEqual(F.exKindInWindow([{ ex_date: "03", kind: "除權" }], dates, 3), "除權");
-  assert.strictEqual(F.exKindInWindow([{ ex_date: "03", kind: "除權" }], dates, 5), null); // 起點日本身不算
+  assert.strictEqual(F.exKindInWindow([{ ex_date: "03", kind: "除權" }], dates, 4), "除權");
+  assert.strictEqual(F.exKindInWindow([{ ex_date: "03", kind: "除權" }], dates, 3), null); // 起點日本身不算
   assert.strictEqual(F.exKindInWindow(ex("除息"), dates, 6), null);
   assert.strictEqual(F.exKindInWindow([{ ex_date: "05", kind: "除息" }, { ex_date: "06", kind: "除權" }], dates, 5), "除權息");
 });
