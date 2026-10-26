@@ -1,48 +1,62 @@
 import os
+import threading
+
+import httpx
 from supabase import ClientOptions, create_client
 from dotenv import load_dotenv
 
 load_dotenv()
 
-_client = None
+_local = threading.local()
 # 網站讀取逾時（秒）：預設 120 秒會讓網路卡住時佔滿所有 worker；逾時就改回快取的舊快照
 READ_TIMEOUT = 15
 
 
 def get_client():
-    """延遲建立 Supabase 連線（匯入模組時不需要網路或 .env）"""
-    global _client
-    if _client is None:
+    """延遲建立 Supabase 連線（匯入模組時不需要網路或 .env）。
+
+    每個執行緒各用一個 client：共用的 httpx HTTP/2 連線在閒置後被多執行緒同時重用，
+    會間歇出現 ReadError（WinError 10035），所以不跨執行緒共用。
+    """
+    client = getattr(_local, "client", None)
+    if client is None:
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_KEY")
         if not url or not key:
             raise RuntimeError("請確認 .env 檔案中包含 SUPABASE_URL 與 SUPABASE_KEY")
-        _client = create_client(url, key, options=ClientOptions(postgrest_client_timeout=READ_TIMEOUT))
-    return _client
+        client = _local.client = create_client(
+            url, key, options=ClientOptions(postgrest_client_timeout=READ_TIMEOUT))
+    return client
+
+
+def run_query(query):
+    """執行查詢；連線重用造成的暫時性錯誤（ReadError／RemoteProtocolError）只重試一次。"""
+    try:
+        return query.execute()
+    except (httpx.ReadError, httpx.RemoteProtocolError):
+        return query.execute()
 
 
 def get_all_industries():
     """獲取所有大產業清單（用於首頁選單）"""
-    res = get_client().table("major_industries").select("*").execute()
+    res = run_query(get_client().table("major_industries").select("*"))
     return res.data
 
 
 def fetch_industry_nodes(major_id):
     """獲取特定產業的所有節點（含沒有公司的節點），依 display_order 排序"""
-    res = (get_client().table("value_chain_nodes")
+    res = run_query(get_client().table("value_chain_nodes")
            .select("node_id, node_name, position_type, display_order")
            .eq("major_id", major_id)
-           .order("display_order")
-           .execute())
+           .order("display_order"))
     return res.data
 
 
 def get_node_companies(node_id):
     """根據節點 ID 抓取該節點下的所有公司（用於點擊後炸出小球）"""
-    res = (get_client().table("company_node_mapping")
+    res = run_query(get_client().table("company_node_mapping")
            .select("stock_id, companies(company_name, latest_price, latest_change)")
-           .eq("node_id", node_id)
-           .execute())
+           .eq("node_id", node_id))
     return res.data
 
 
@@ -130,7 +144,7 @@ def fetch_all(build, page: int = 1000) -> list[dict]:
     rows: list = []
     start = 0
     while True:
-        data = build().range(start, start + page - 1).execute().data or []
+        data = run_query(build().range(start, start + page - 1)).data or []
         rows.extend(data)
         if len(data) < page:
             return rows
@@ -185,11 +199,10 @@ def fetch_revenue_since(ids: list[str], since_month: str) -> list[dict]:
 
 
 def fetch_sync_runs(limit: int = 50) -> list[dict]:
-    res = (get_client().table("sync_runs")
+    res = run_query(get_client().table("sync_runs")
            .select("id, dataset, status, last_date, rows, message, finished_at")
            .order("finished_at", desc=True)
-           .limit(limit)
-           .execute())
+           .limit(limit))
     return res.data or []
 
 
@@ -221,11 +234,10 @@ def _first_node(mapping) -> tuple:
 def fetch_companies(ids: list[str]) -> list[dict]:
     rows: list[dict] = []
     for batch in chunks(ids):
-        res = (get_client().table("companies")
+        res = run_query(get_client().table("companies")
                .select("stock_id, company_name, market_type, latest_price, latest_change, "
                        "company_node_mapping(node_id, value_chain_nodes(major_id))")
-               .in_("stock_id", batch)
-               .execute())
+               .in_("stock_id", batch))
         for r in res.data or []:
             node_id, major_id = _first_node(r.pop("company_node_mapping", None))
             r["node_id"], r["major_id"] = node_id, major_id
@@ -240,12 +252,11 @@ def search_companies(q: str, limit: int = 20) -> list[dict]:
     q = q.strip()
     if not q:
         return []
-    res = (get_client().table("companies")
+    res = run_query(get_client().table("companies")
            .select("stock_id, company_name, company_node_mapping(node_id, value_chain_nodes(major_id))")
            .or_(f"stock_id.ilike.{q}*,company_name.ilike.*{q}*")
            .order("stock_id")
-           .limit(limit)
-           .execute())
+           .limit(limit))
     out = []
     for r in res.data or []:
         node_id, major_id = _first_node(r.get("company_node_mapping"))

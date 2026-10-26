@@ -208,3 +208,12 @@ def test_pages_have_freshness_and_search(client, monkeypatch):
         assert "/static/js/common.js" in html
         assert 'type="search"' in html
     assert 'id="watchlist"' in client.get("/").get_data(as_text=True)
+
+
+def test_home_has_nav_tabs_and_no_view_industries_button(client, monkeypatch):
+    monkeypatch.setattr(app_module, "get_all_industries", lambda: [])
+    html = client.get("/").get_data(as_text=True)
+    for label, href in [("首頁", "#top"), ("自選股", "#watchlist"), ("產業列表", "#industries")]:
+        assert f'href="{href}"' in html and f">{label}</a>" in html
+    assert "查看產業" not in html
+    assert 'id="top"' in html

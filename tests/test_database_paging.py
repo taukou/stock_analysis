@@ -30,3 +30,47 @@ def test_first_node_is_deterministic():
     assert database._first_node(m) == ("N102", "M01")
     assert database._first_node(list(reversed(m))) == ("N102", "M01")
     assert database._first_node([]) == (None, None)
+
+
+def test_get_client_is_per_thread(monkeypatch):
+    import threading
+    monkeypatch.setenv("SUPABASE_URL", "http://fake.invalid")
+    monkeypatch.setenv("SUPABASE_KEY", "fake-key")
+    monkeypatch.setattr(database, "_local", threading.local())
+    monkeypatch.setattr(database, "create_client", lambda *a, **k: object())
+    main_a, main_b = database.get_client(), database.get_client()
+    other = []
+    t = threading.Thread(target=lambda: other.append(database.get_client()))
+    t.start(); t.join()
+    assert main_a is main_b
+    assert other[0] is not main_a
+
+
+def test_get_client_missing_env_message(monkeypatch):
+    import threading
+    import pytest
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_KEY", raising=False)
+    monkeypatch.setattr(database, "_local", threading.local())
+    with pytest.raises(RuntimeError, match="SUPABASE_URL"):
+        database.get_client()
+
+
+def test_run_query_retries_once_on_read_error():
+    import httpx
+    import pytest
+
+    class Flaky:
+        def __init__(self, fails): self.fails, self.calls = fails, 0
+        def execute(self):
+            self.calls += 1
+            if self.calls <= self.fails:
+                raise httpx.ReadError("boom")
+            return "ok"
+
+    q = Flaky(1)
+    assert database.run_query(q) == "ok" and q.calls == 2
+    q2 = Flaky(2)
+    with pytest.raises(httpx.ReadError):
+        database.run_query(q2)
+    assert q2.calls == 2

@@ -58,3 +58,18 @@ test("Enter during debounce searches the current text, not the previous hits", a
   await wait(300);
   assert.deepStrictEqual(env.fetched, ["聯", "台積"]);   // 被 Enter 取代的計時器不會再查一次
 });
+
+test("activeSection picks last section above the 40% line", () => {
+  const tops = [0, 900, 1500];
+  assert.strictEqual(C.activeSection(tops, 0, 900), 0);
+  assert.strictEqual(C.activeSection(tops, 539, 900), 0);   // 線在 899
+  assert.strictEqual(C.activeSection(tops, 540, 900), 1);   // 線在 900
+  assert.strictEqual(C.activeSection(tops, 1200, 900), 2);
+});
+test("activeSection skips hidden sections", () => {
+  assert.strictEqual(C.activeSection([0, null, 1500], 600, 900), 0);
+  assert.strictEqual(C.activeSection([0, null, 1500], 1200, 900), 2);
+  assert.strictEqual(C.activeSection([null, 800, 1500], 0, 900), 1);   // 都還沒到：第一個可見
+  assert.strictEqual(C.activeSection([null, null], 0, 900), -1);
+  assert.strictEqual(C.activeSection([], 0, 900), -1);
+});

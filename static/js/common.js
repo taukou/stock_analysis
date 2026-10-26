@@ -105,7 +105,69 @@
     input.addEventListener("blur", () => setTimeout(hide, 150));
   }
 
-  const api = { freshnessClass, freshnessTooltip, searchUrl, mountFreshness, mountSearch };
+  // 導覽列 scroll-spy：sectionTops 為各區塊頂端的文件座標（區塊隱藏時給 null）。
+  // 頂端已越過視窗 40% 高度線的區塊中，取最後一個；都還沒到就取第一個可見區塊；全部隱藏回 -1
+  function activeSection(sectionTops, scrollY, viewportH) {
+    const line = scrollY + viewportH * 0.4;
+    let active = -1, first = -1;
+    (sectionTops || []).forEach((top, i) => {
+      if (typeof top !== "number" || !isFinite(top)) return;
+      if (first < 0) first = i;
+      if (top <= line) active = i;
+    });
+    return active >= 0 ? active : first;
+  }
+
+  // 首頁頂部分頁：點擊平滑捲動並立即移動高亮，捲動時高亮跟著所在區塊
+  // tabs: [{el, target}]（target 為區塊元素；首頁用 hero）；pill 為滑動高亮元素
+  function mountNavTabs(tabs, pill) {
+    let current = -1, clickLock = 0;
+    const visible = t => !t.el.hidden && t.target && !t.target.hidden;
+    const tops = () => tabs.map(t => visible(t)
+      ? t.target.getBoundingClientRect().top + window.scrollY : null);
+
+    function movePill(i) {
+      const el = i >= 0 ? tabs[i].el : null;
+      if (!el || el.hidden) { pill.style.opacity = "0"; return; }
+      pill.style.opacity = "1";
+      pill.style.width = `${el.offsetWidth}px`;
+      pill.style.transform = `translateX(${el.offsetLeft}px)`;
+    }
+    function setActive(i) {
+      current = i;
+      tabs.forEach((t, k) => {
+        if (k === i) t.el.setAttribute("aria-current", "page");
+        else t.el.removeAttribute("aria-current");
+      });
+      movePill(i);
+    }
+    function update() {
+      if (Date.now() < clickLock) return;   // 點擊後的平滑捲動途中不讓高亮跳回去
+      const i = activeSection(tops(), window.scrollY, window.innerHeight);
+      if (i !== current) setActive(i);
+    }
+    let ticking = false;
+    window.addEventListener("scroll", () => {
+      if (!ticking) { ticking = true; requestAnimationFrame(() => { ticking = false; update(); }); }
+    }, { passive: true });
+    window.addEventListener("resize", () => movePill(current));
+
+    tabs.forEach((t, i) => t.el.addEventListener("click", ev => {
+      ev.preventDefault();
+      setActive(i);
+      clickLock = Date.now() + 900;
+      t.target.scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(update, 950);
+    }));
+    // 初次定位不要動畫（pill 還沒有位置）
+    pill.style.transition = "none";
+    setActive(activeSection(tops(), window.scrollY, window.innerHeight));
+    pill.offsetWidth;   // 強制重排
+    pill.style.transition = "";
+    return { refresh: () => { current = -2; update(); } };
+  }
+
+  const api = { freshnessClass, freshnessTooltip, searchUrl, mountFreshness, mountSearch, activeSection, mountNavTabs };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Common = api;
 })(typeof window !== "undefined" ? window : globalThis);

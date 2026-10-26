@@ -56,9 +56,26 @@
             font-size: 0.95rem;
             white-space: nowrap;
         }
-        .top-bar strong { font-weight: 600; letter-spacing: 0.5px; }
-        .top-bar a { color: var(--text-2); text-decoration: none; transition: color 0.2s; }
-        .top-bar a:hover { color: var(--text-1); }
+        .top-bar .brand { font-weight: 500; font-size: 0.85rem; letter-spacing: 0.5px; color: var(--text-3); }
+        .top-bar .divider { width: 1px; height: 18px; background: rgba(255, 255, 255, 0.18); flex: none; }
+        .nav-tabs { position: relative; display: flex; align-items: center; }
+        /* 滑動高亮：玻璃條內部的淡色底（不再疊玻璃） */
+        .nav-pill {
+            position: absolute; top: 0; bottom: 0; left: 0; width: 0;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.16);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+            transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s;
+            pointer-events: none;
+        }
+        .nav-tab {
+            position: relative; padding: 6px 14px; border-radius: 999px;
+            color: var(--text-2); text-decoration: none; transition: color 0.2s;
+        }
+        .nav-tab[hidden] { display: none; }
+        .nav-tab:hover { color: var(--text-1); }
+        .nav-tab[aria-current] { color: var(--text-1); font-weight: 600; }
+        .nav-tab:focus-visible { outline: 2px solid var(--text-2); outline-offset: 1px; }
 
         /* 首屏 */
         .hero {
@@ -82,17 +99,18 @@
             color: var(--text-2);
             margin-bottom: 40px;
         }
-        .scroll-hint {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 24px;
-            color: var(--text-1);
-            text-decoration: none;
-            font-size: 0.95rem;
+        .hero { position: relative; }
+        .scroll-cue {
+            position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%);
+            padding: 10px; border: 0; background: none; cursor: pointer;
+            color: var(--text-3); line-height: 0;
+            transition: opacity 0.3s;
         }
-        .scroll-hint span { display: inline-block; animation: nudge 2s ease-in-out infinite; }
-        @keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+        .scroll-cue svg { animation: bob 2s ease-in-out infinite; }
+        .scroll-cue:hover { color: var(--text-2); }
+        .scroll-cue.gone { opacity: 0; pointer-events: none; }
+        @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+        @media (prefers-reduced-motion: reduce) { .scroll-cue svg { animation: none; } .nav-pill { transition: none; } }
 
         /* 產業區：與首屏同一片背景，自然往下接 */
         .industries {
@@ -167,8 +185,11 @@
         }
 
         @media (max-width: 520px) {
-            .top-bar { gap: 12px; padding: 8px 16px; font-size: 0.85rem; }
-            .search-input { width: 100px; }
+            .top-bar { gap: 8px; padding: 6px 10px; font-size: 0.8rem; max-width: calc(100vw - 16px); }
+            .top-bar .brand { display: none; }
+            .top-bar .divider { display: none; }
+            .nav-tab { padding: 6px 9px; }
+            .search-input { width: 84px; min-width: 0; }
             .watch-row { grid-template-columns: 56px 1fr auto 64px; gap: 8px; padding: 10px 8px; }
             .cards-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
             .industry-card { min-height: 140px; padding: 16px 14px; }
@@ -182,20 +203,26 @@
     <div id="scroll-dim" aria-hidden="true"></div>
 
     <nav class="top-bar glass glass-pill refract" aria-label="主要導覽">
-        <strong>股市產業鏈</strong>
-        <a href="#industries">產業列表</a>
+        <span class="brand">股市產業鏈</span>
+        <span class="divider" aria-hidden="true"></span>
+        <div class="nav-tabs" id="nav-tabs">
+            <span class="nav-pill" id="nav-pill" aria-hidden="true"></span>
+            <a class="nav-tab" href="#top" data-target="top">首頁</a>
+            <a class="nav-tab" href="#watchlist" data-target="watchlist" hidden>自選股</a>
+            <a class="nav-tab" href="#industries" data-target="industries">產業列表</a>
+        </div>
         <input id="search-input" class="search-input" type="search" placeholder="搜尋代號／名稱" aria-label="搜尋公司" autocomplete="off">
     </nav>
     <div id="search-list" class="search-list glass" role="listbox"></div>
     <div id="freshness" class="glass glass-pill" role="status">資料狀態載入中…</div>
 
     <main>
-        <section class="hero">
+        <section class="hero" id="top">
             <h1>股市產業鏈分析系統</h1>
             <p>探索上市公司產業鏈結構，分析市場動態</p>
-            <a class="scroll-hint glass glass-pill glass-interactive refract" href="#industries">
-                查看產業 <span aria-hidden="true">↓</span>
-            </a>
+            <button type="button" class="scroll-cue" id="scroll-cue" aria-label="往下捲動">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
         </section>
 
         <section class="watchlist" id="watchlist" hidden>
@@ -228,6 +255,22 @@
         Common.mountFreshness(document.getElementById('freshness'));
         Common.mountSearch(document.getElementById('search-input'), document.getElementById('search-list'));
 
+        // 導覽分頁（scroll-spy）與首屏往下提示
+        const navTabs = Array.from(document.querySelectorAll('#nav-tabs .nav-tab')).map(el =>
+            ({ el, target: document.getElementById(el.dataset.target) }));
+        const nav = Common.mountNavTabs(navTabs, document.getElementById('nav-pill'));
+        (function () {
+            const cue = document.getElementById('scroll-cue');
+            const hero = document.getElementById('top');
+            cue.addEventListener('click', () => {
+                const wl = document.getElementById('watchlist');
+                (wl.hidden ? document.getElementById('industries') : wl).scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+            const sync = () => cue.classList.toggle('gone', window.scrollY > hero.offsetHeight * 0.1);
+            window.addEventListener('scroll', sync, { passive: true });
+            sync();
+        })();
+
         // 自選股：localStorage 的代號清單 → /api/companies 取最新價與今日漲跌；清單空或讀取失敗整塊不顯示
         (function () {
             const section = document.getElementById('watchlist');
@@ -258,7 +301,11 @@
                         });
                         box.appendChild(row);
                     });
-                    if (box.children.length) section.hidden = false;
+                    if (box.children.length) {
+                        section.hidden = false;
+                        document.querySelector('.nav-tab[data-target="watchlist"]').hidden = false;
+                        nav.refresh();
+                    }
                 })
                 .catch(err => console.warn('自選股載入失敗', err));
         })();
