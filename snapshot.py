@@ -1,4 +1,5 @@
 """全市場趨勢快照：把資料庫讀回的列整理成各股區間漲跌、除權息標記與訊號，並做記憶體快取。"""
+import threading
 import time
 from collections import defaultdict
 from datetime import date, timedelta
@@ -44,27 +45,62 @@ def build_snapshot(quotes: list[dict], ex_rows: list[dict],
 
 
 class SnapshotCache:
-    """TTL 快取；過期後重載失敗時回舊值，沒有舊值才把例外丟出。"""
+    """TTL 快取。
+
+    - 過期後重載失敗時回舊值，沒有舊值才把例外丟出。
+    - 同時只有一個執行緒重載：已有舊值時，其他請求直接拿舊值不等待；只有冷啟動（無值）會排隊等。
+    - 重載失敗後 backoff 秒內不再重試（有舊值回舊值，無舊值直接丟出上次的例外）。
+    """
 
     def __init__(self, loader: Callable[[], dict], ttl: float = 600,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, backoff: float = 60):
         self._loader = loader
         self._ttl = ttl
         self._clock = clock
+        self._backoff = backoff
         self._value: dict | None = None
         self._loaded_at = 0.0
+        self._retry_at = float("-inf")
+        self._error: Exception | None = None
+        self._lock = threading.Lock()
+
+    def _fresh(self, now: float) -> bool:
+        return self._value is not None and now - self._loaded_at < self._ttl
+
+    def _cached_or_raise(self) -> dict:
+        if self._value is None:
+            raise self._error or RuntimeError("快照尚未載入")
+        return self._value
 
     def get(self) -> dict:
         now = self._clock()
-        if self._value is not None and now - self._loaded_at < self._ttl:
+        if self._fresh(now):
             return self._value
+        if now < self._retry_at:
+            return self._cached_or_raise()
+        if self._value is not None:
+            if not self._lock.acquire(blocking=False):
+                return self._value          # 別的執行緒正在重載：先給舊值
+        else:
+            self._lock.acquire()            # 冷啟動：等正在進行的載入
         try:
-            self._value = self._loader()
-            self._loaded_at = now
-        except Exception:
-            if self._value is None:
-                raise
-        return self._value
+            now = self._clock()
+            if self._fresh(now):
+                return self._value          # 等鎖期間別人已載好
+            if now < self._retry_at:
+                return self._cached_or_raise()
+            try:
+                self._value = self._loader()
+                self._loaded_at = now
+                self._error = None
+            except Exception as e:
+                self._error = e
+                self._retry_at = now + self._backoff
+                if self._value is None:
+                    raise
+            return self._value
+        finally:
+            self._lock.release()
 
 
 def load_snapshot(today: date | None = None) -> dict:

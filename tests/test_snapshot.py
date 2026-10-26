@@ -30,3 +30,69 @@ def test_cache_raises_without_stale():
     c = SnapshotCache(lambda: (_ for _ in ()).throw(RuntimeError("down")), clock=lambda: 0.0)
     with pytest.raises(RuntimeError):
         c.get()
+
+
+def test_cache_backs_off_after_failure():
+    t = [0.0]; calls = []
+    def loader():
+        calls.append(1)
+        if len(calls) >= 2: raise RuntimeError("down")
+        return {"n": 1}
+    c = SnapshotCache(loader, ttl=600, clock=lambda: t[0], backoff=60)
+    c.get()
+    t[0] = 700; assert c.get() == {"n": 1} and len(calls) == 2   # 失敗 → 舊值
+    t[0] = 730; assert c.get() == {"n": 1} and len(calls) == 2   # backoff 內不重試
+    t[0] = 761; assert c.get() == {"n": 1} and len(calls) == 3   # backoff 過後再試一次
+
+
+def test_cold_failure_backs_off_and_reraises():
+    t = [0.0]; calls = []
+    def loader():
+        calls.append(1)
+        raise RuntimeError("down")
+    c = SnapshotCache(loader, clock=lambda: t[0], backoff=60)
+    with pytest.raises(RuntimeError): c.get()
+    t[0] = 30
+    with pytest.raises(RuntimeError): c.get()
+    assert len(calls) == 1
+    t[0] = 61
+    with pytest.raises(RuntimeError): c.get()
+    assert len(calls) == 2
+
+
+def test_stale_served_while_reload_in_flight():
+    import threading
+    t = [0.0]; started = threading.Event(); release = threading.Event(); calls = []
+    def loader():
+        calls.append(1)
+        if len(calls) == 2:
+            started.set(); release.wait(5)
+        return {"n": len(calls)}
+    c = SnapshotCache(loader, ttl=600, clock=lambda: t[0])
+    c.get()
+    t[0] = 700
+    out = {}
+    th = threading.Thread(target=lambda: out.setdefault("a", c.get()))
+    th.start()
+    assert started.wait(5)
+    assert c.get() == {"n": 1}            # 重載進行中：第二個呼叫者立刻拿舊值
+    assert len(calls) == 2                # 沒有重複重載
+    release.set(); th.join(5)
+    assert out["a"] == {"n": 2} and c.get() == {"n": 2}
+
+
+def test_cold_start_single_flight():
+    import threading
+    started = threading.Event(); release = threading.Event(); calls = []
+    def loader():
+        calls.append(1)
+        started.set(); release.wait(5)
+        return {"n": len(calls)}
+    c = SnapshotCache(loader, clock=lambda: 0.0)
+    results = []
+    ths = [threading.Thread(target=lambda: results.append(c.get())) for _ in range(3)]
+    for th in ths: th.start()
+    assert started.wait(5)
+    release.set()
+    for th in ths: th.join(5)
+    assert results == [{"n": 1}] * 3 and len(calls) == 1

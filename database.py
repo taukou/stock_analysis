@@ -1,10 +1,12 @@
 import os
-from supabase import create_client
+from supabase import ClientOptions, create_client
 from dotenv import load_dotenv
 
 load_dotenv()
 
 _client = None
+# 網站讀取逾時（秒）：預設 120 秒會讓網路卡住時佔滿所有 worker；逾時就改回快取的舊快照
+READ_TIMEOUT = 15
 
 
 def get_client():
@@ -15,7 +17,7 @@ def get_client():
         key = os.environ.get("SUPABASE_KEY")
         if not url or not key:
             raise RuntimeError("請確認 .env 檔案中包含 SUPABASE_URL 與 SUPABASE_KEY")
-        _client = create_client(url, key)
+        _client = create_client(url, key, options=ClientOptions(postgrest_client_timeout=READ_TIMEOUT))
     return _client
 
 
