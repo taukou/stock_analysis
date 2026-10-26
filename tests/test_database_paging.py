@@ -21,3 +21,12 @@ def test_chunks():
 def test_search_strips_specials_and_empty(monkeypatch):
     monkeypatch.setattr(database, "get_client", lambda: (_ for _ in ()).throw(AssertionError("不應查詢")))
     assert database.search_companies("  ,()*% ") == []
+    assert database.search_companies(' "_" ') == []   # ILIKE 萬用字元 _ 與引號也移除
+
+
+def test_first_node_is_deterministic():
+    m = [{"node_id": "N301", "value_chain_nodes": {"major_id": "M01"}},
+         {"node_id": "N102", "value_chain_nodes": [{"major_id": "M01"}]}]
+    assert database._first_node(m) == ("N102", "M01")
+    assert database._first_node(list(reversed(m))) == ("N102", "M01")
+    assert database._first_node([]) == (None, None)

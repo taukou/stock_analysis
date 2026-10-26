@@ -205,10 +205,13 @@ def fetch_major_node_companies(major_id) -> list[dict]:
 
 
 def _first_node(mapping) -> tuple:
-    """取嵌入的 company_node_mapping 第一筆的 (node_id, major_id)。"""
+    """取嵌入的 company_node_mapping 中 node_id 最小的一筆 (node_id, major_id)。
+
+    嵌入結果沒有固定順序，一家公司屬於多個節點時要排序才穩定。
+    """
     if not mapping:
         return None, None
-    first = mapping[0]
+    first = min(mapping, key=lambda m: m.get("node_id") or "")
     node = first.get("value_chain_nodes") or {}
     if isinstance(node, list):
         node = node[0] if node else {}
@@ -231,8 +234,8 @@ def fetch_companies(ids: list[str]) -> list[dict]:
 
 
 def search_companies(q: str, limit: int = 20) -> list[dict]:
-    """代號前綴或名稱包含（不分大小寫）；先移除 PostgREST 篩選語法的特殊字元。"""
-    for ch in ",()*%\\":
+    """代號前綴或名稱包含（不分大小寫）；先移除 PostgREST 篩選語法的特殊字元與 ILIKE 萬用字元。"""
+    for ch in ',()*%\\"_':
         q = q.replace(ch, "")
     q = q.strip()
     if not q:
