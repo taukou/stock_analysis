@@ -1,380 +1,238 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>股市產業鏈系統</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='glass.css') }}">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #0f1835 50%, #050a15 100%);
+            font-family: var(--font);
+            color: var(--text-1);
+            background: #05070f;
             min-height: 100vh;
             overflow-x: hidden;
         }
 
-        /* 滾動容器，讓頁面可以滾動 */
-        body::before {
-            content: '';
-            display: block;
-            height: 200vh;
-            pointer-events: none;
-        }
-
-        /* Shader 背景容器 */
+        /* 背景：shader 固定在最底層，整頁共用同一片背景，不再分段 */
         #shader-root {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100vh;
+            inset: 0;
             z-index: 0;
             pointer-events: none;
+            background:
+                radial-gradient(60% 50% at 25% 30%, rgba(115, 191, 196, 0.35), transparent 70%),
+                radial-gradient(50% 45% at 75% 65%, rgba(255, 129, 10, 0.25), transparent 70%),
+                radial-gradient(45% 40% at 60% 20%, rgba(141, 160, 206, 0.3), transparent 70%),
+                #05070f;
         }
 
-        .hero-section {
+        /* 隨捲動漸暗：由 JS 設定 --dim（0～1），平滑過渡，沒有分界線 */
+        #scroll-dim {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100vh;
+            inset: 0;
             z-index: 1;
-            opacity: 0.85;
-            transition: filter 0.3s ease;
+            pointer-events: none;
+            background: rgba(3, 5, 12, calc(0.25 + var(--dim, 0) * 0.45));
         }
 
-        .hero-section.dimmed {
-            filter: brightness(0.4);
-        }
+        main { position: relative; z-index: 2; }
 
-        .hero-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.4);
-            z-index: 2;
-        }
-
-        /* 標題和說明 */
-        .hero-content {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            color: white;
-            z-index: 3;
-            width: 90%;
-        }
-
-        .hero-content h1 {
-            font-size: 3.5rem;
-            font-weight: bold;
-            text-shadow: 2px 2px 10px rgba(0, 0, 0, 0.7);
-            margin-bottom: 20px;
-            letter-spacing: 2px;
-        }
-
-        .hero-content p {
-            font-size: 1.3rem;
-            text-shadow: 1px 1px 5px rgba(0, 0, 0, 0.7);
-            margin-bottom: 30px;
-        }
-
-        .scroll-hint {
-            position: absolute;
-            bottom: 20px;
+        /* 頂部浮動導覽（玻璃層） */
+        .top-bar {
+            position: fixed;
+            top: 16px;
             left: 50%;
             transform: translateX(-50%);
-            z-index: 3;
-            color: white;
-            font-size: 0.9rem;
-            opacity: 0.7;
-            animation: bounce 2s infinite;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            padding: 10px 22px;
+            font-size: 0.95rem;
+            white-space: nowrap;
         }
+        .top-bar strong { font-weight: 600; letter-spacing: 0.5px; }
+        .top-bar a { color: var(--text-2); text-decoration: none; transition: color 0.2s; }
+        .top-bar a:hover { color: var(--text-1); }
 
-        @keyframes bounce {
-            0%, 100% { transform: translateX(-50%) translateY(0); }
-            50% { transform: translateX(-50%) translateY(-10px); }
+        /* 首屏 */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 16px;
         }
-
-        /* 主要內容容器 */
-        .content-wrapper {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            z-index: 5;
-            background: transparent;
-            padding: 40px 20px;
-            opacity: 0;
-            transition: opacity 0.5s ease, transform 0.5s ease;
-            max-height: 70vh;
-            overflow-y: auto;
-            transform: translateY(100%);
-            pointer-events: none;
+        .hero h1 {
+            font-size: clamp(2.2rem, 6vw, 4rem);
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            margin-bottom: 18px;
         }
-
-        .content-wrapper.visible {
-            opacity: 1;
-            transform: translateY(0);
-            pointer-events: auto;
+        .hero p {
+            font-size: clamp(1rem, 2vw, 1.25rem);
+            color: var(--text-2);
+            margin-bottom: 40px;
         }
+        .scroll-hint {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            color: var(--text-1);
+            text-decoration: none;
+            font-size: 0.95rem;
+        }
+        .scroll-hint span { display: inline-block; animation: nudge 2s ease-in-out infinite; }
+        @keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
 
-        .content-section {
-            max-width: 1400px;
+        /* 產業區：與首屏同一片背景，自然往下接 */
+        .industries {
+            max-width: 1000px;
             margin: 0 auto;
+            padding: 40px 16px 80px;
+            scroll-margin-top: 80px;
         }
-
         .section-title {
             text-align: center;
-            color: #ffffff;
-            font-size: 2.5rem;
-            margin-bottom: 50px;
-            font-weight: bold;
-            letter-spacing: 1px;
-            text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+            font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        .section-sub {
+            text-align: center;
+            color: var(--text-2);
+            margin-bottom: 44px;
         }
 
-        /* 卡片網格 */
         .cards-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 140px));
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
             gap: 20px;
-            margin-bottom: 50px;
-            justify-content: center;
         }
 
         .industry-card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 12px;
-            padding: 15px 10px;
-            cursor: pointer;
-            transition: none;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
-            border-left: 5px solid #00d4ff;
-            min-height: 180px;
             display: flex;
             flex-direction: column;
-            transform: translateY(0);
-        }
-
-        .industry-card.animate-up {
-            transform: translateY(0);
-        }
-
-        .industry-card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 12px 24px rgba(0, 212, 255, 0.4);
-            border-left-color: #00ff88;
-        }
-
-        .industry-card h3 {
-            color: #16213e;
-            font-size: 1rem;
-            margin-bottom: 8px;
-            font-weight: 600;
-            line-height: 1.2;
-        }
-
-        .industry-card p {
-            color: #666;
-            font-size: 0.75rem;
-            margin-bottom: 10px;
-            flex-grow: 1;
-            min-height: 25px;
-            line-height: 1.2;
-            display: block;
-        }
-
-        .industry-card a {
-            display: inline-block;
-            background: #00d4ff;
-            color: #0f3460;
-            padding: 5px 10px;
-            border-radius: 20px;
+            gap: 10px;
+            min-height: 160px;
+            padding: 22px 20px 18px;
+            border-radius: var(--radius-m);
             text-decoration: none;
-            font-weight: bold;
-            transition: all 0.3s ease;
-            border: none;
-            cursor: pointer;
-            font-size: 0.75rem;
+            color: var(--text-1);
+        }
+        .industry-card h3 { font-size: 1.15rem; font-weight: 600; line-height: 1.3; }
+        .industry-card p { color: var(--text-2); font-size: 0.85rem; line-height: 1.5; flex-grow: 1; }
+        .industry-card .go {
             align-self: flex-start;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: rgba(90, 200, 250, 0.18);
+            border: 1px solid rgba(90, 200, 250, 0.35);
+            color: #bfe9ff;
+            font-size: 0.8rem;
+            font-weight: 600;
         }
 
-        .industry-card a:hover {
-            background: #00ff88;
+        .empty-note { text-align: center; color: var(--text-2); }
+
+        footer {
+            text-align: center;
+            color: var(--text-3);
+            font-size: 0.85rem;
+            padding: 30px 16px 40px;
         }
 
-        .industry-card a:hover {
-            transform: scale(1.05);
-            box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
-        }
-
-        /* 響應式設計 */
-        @media (max-width: 768px) {
-            .hero-content h1 {
-                font-size: 2rem;
-            }
-
-            .hero-content p {
-                font-size: 1rem;
-            }
-
-            .cards-grid {
-                grid-template-columns: repeat(auto-fit, minmax(180px, 180px));
-                gap: 20px;
-            }
-
-            .section-title {
-                font-size: 1.8rem;
-                margin-bottom: 30px;
-            }
-
-            .content-wrapper {
-                padding: 40px 15px;
-            }
+        @media (max-width: 520px) {
+            .top-bar { gap: 12px; padding: 8px 16px; font-size: 0.85rem; }
+            .cards-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+            .industry-card { min-height: 140px; padding: 16px 14px; }
         }
     </style>
 </head>
 <body>
-    <!-- Shader 背景 -->
+    {% include '_glass_filter.html' %}
+
     <div id="shader-root" aria-hidden="true"></div>
-    <!-- 背景區域 -->
-    <div class="hero-section"></div>
-    <div class="hero-overlay"></div>
+    <div id="scroll-dim" aria-hidden="true"></div>
 
-    <!-- 標題和說明 -->
-    <div class="hero-content">
-        <h1>股市產業鏈分析系統</h1>
-        <p>探索上市公司產業鏈結構，分析市場動態</p>
-    </div>
+    <nav class="top-bar glass glass-pill refract" aria-label="主要導覽">
+        <strong>股市產業鏈</strong>
+        <a href="#industries">產業列表</a>
+    </nav>
 
-    <div class="scroll-hint">↓ 向下滑動查看產業 ↓</div>
+    <main>
+        <section class="hero">
+            <h1>股市產業鏈分析系統</h1>
+            <p>探索上市公司產業鏈結構，分析市場動態</p>
+            <a class="scroll-hint glass glass-pill glass-interactive refract" href="#industries">
+                查看產業 <span aria-hidden="true">↓</span>
+            </a>
+        </section>
 
-    <!-- 產業卡片區域 -->
-    <div class="content-wrapper">
-        <div class="content-section">
-            <div class="section-title">選擇您感興趣的產業</div>
+        <section class="industries" id="industries">
+            <h2 class="section-title">選擇您感興趣的產業</h2>
+            <p class="section-sub">點選產業，查看上中下游與個股動態</p>
             <div class="cards-grid">
                 {% for ind in industries %}
-                <div class="industry-card">
+                <a class="industry-card glass glass-interactive refract" href="/industry/{{ ind.major_id }}">
                     <h3>{{ ind.major_name }}</h3>
-                    <p>探索 {{ ind.major_name }} 產業的完整供應鏈</p>
-                    <a href="/industry/{{ ind.major_id }}">進入分析 →</a>
-                </div>
+                    <p>探索{{ ind.major_name }}產業的完整供應鏈</p>
+                    <span class="go">進入分析 →</span>
+                </a>
+                {% else %}
+                <p class="empty-note">目前讀不到產業資料，請確認資料庫連線。</p>
                 {% endfor %}
             </div>
-        </div>
-    </div>
+        </section>
 
-    <!-- 頁尾 -->
-    <div style="background: #000; color: #00d4ff; padding: 30px 20px; text-align: center; font-size: 0.9rem; border-top: 2px solid #00d4ff; box-shadow: 0 -5px 20px rgba(0, 212, 255, 0.1);">
-        <p>股市產業鏈分析系統 © 2026 | 提供最新的上市公司產業鏈數據</p>
-    </div>
+        <footer>股市產業鏈分析系統 © 2026 · 資料來源：證交所、櫃買中心、公開資訊觀測站</footer>
+    </main>
 
     <script>
-        let lastScrollY = 0;
-        let scrollTimeout;
-        let isAutoScrolling = false;
-        const heroHeight = window.innerHeight;
-        const heroSection = document.querySelector('.hero-section');
-        const contentWrapper = document.querySelector('.content-wrapper');
-
-        window.addEventListener('scroll', () => {
-            const currentScrollY = window.scrollY;
-            const isScrollingDown = currentScrollY > lastScrollY;
-            const isScrollingUp = currentScrollY < lastScrollY;
-
-            // 當滾動超過 hero 區域高度時，背景黯淡並顯示圖卡
-            if (currentScrollY > heroHeight * 0.2) {
-                heroSection.classList.add('dimmed');
-                contentWrapper.classList.add('visible');
-            } else {
-                heroSection.classList.remove('dimmed');
-                contentWrapper.classList.remove('visible');
+        // 隨捲動讓背景漸暗（第一屏捲完時達到最暗），用 rAF 節流
+        (function () {
+            const root = document.documentElement;
+            let ticking = false;
+            function apply() {
+                const dim = Math.min(window.scrollY / window.innerHeight, 1);
+                root.style.setProperty('--dim', dim.toFixed(3));
+                ticking = false;
             }
+            window.addEventListener('scroll', () => {
+                if (!ticking) { ticking = true; requestAnimationFrame(apply); }
+            }, { passive: true });
+            apply();
+        })();
 
-            // 自動定位邏輯
-            if (!isAutoScrolling) {
-                if (isScrollingDown && currentScrollY <= heroHeight) {
-                    isAutoScrolling = true;
-                    clearTimeout(scrollTimeout);
-                    
-                    window.scrollTo({
-                        top: heroHeight,
-                        behavior: 'smooth'
-                    });
-                    
-                    scrollTimeout = setTimeout(() => {
-                        isAutoScrolling = false;
-                    }, 600);
+        // ShaderGradient 動態背景（載入失敗時保留 CSS 漸層底）
+        (async () => {
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            try {
+                const React = (await import('https://esm.sh/react@19.1.0')).default;
+                const { createRoot } = await import('https://esm.sh/react-dom@19.1.0/client');
+                const { ShaderGradientCanvas, ShaderGradient } = await import('https://esm.sh/@shadergradient/react@2.4.20?deps=react@19.1.0,react-dom@19.1.0');
+
+                const url = "https://shadergradient.co/customize?animate=on&axesHelper=off&bgColor1=%23000000&bgColor2=%23000000&brightness=0.8&cAzimuthAngle=270&cDistance=0.5&cPolarAngle=180&cameraZoom=15.1&color1=%2373bfc4&color2=%23ff810a&color3=%238da0ce&destination=onCanvas&embedMode=off&envPreset=city&format=gif&fov=45&frameRate=10&gizmoHelper=hide&grain=on&lightType=env&pixelDensity=1&positionX=-0.1&positionY=0&positionZ=0&range=disabled&rangeEnd=40&rangeStart=0&reflection=0.4&rotationX=0&rotationY=130&rotationZ=70&shader=defaults&type=sphere&uAmplitude=3.2&uDensity=0.8&uFrequency=5.5&uSpeed=0.3&uStrength=0.3&uTime=0&wireframe=false";
+
+                function App() {
+                    return React.createElement(ShaderGradientCanvas, { style: { position: 'absolute', inset: 0 }, pixelDensity: 2, fov: 45 },
+                        React.createElement(ShaderGradient, { control: 'query', urlString: url })
+                    );
                 }
-                else if (isScrollingUp && currentScrollY <= heroHeight + 50) {
-                    isAutoScrolling = true;
-                    clearTimeout(scrollTimeout);
-                    
-                    window.scrollTo({
-                        top: 0,
-                        behavior: 'smooth'
-                    });
-                    
-                    scrollTimeout = setTimeout(() => {
-                        isAutoScrolling = false;
-                    }, 600);
-                }
+                const mount = document.getElementById('shader-root');
+                if (mount) createRoot(mount).render(React.createElement(App));
+            } catch (err) {
+                console.warn('ShaderGradient 載入失敗，改用靜態漸層背景', err);
             }
-
-            lastScrollY = currentScrollY;
-        });
-
-        // 點擊產業卡片時清除自動滾動
-        document.querySelectorAll('.industry-card a').forEach(link => {
-            link.addEventListener('click', (e) => {
-                isAutoScrolling = false;
-                clearTimeout(scrollTimeout);
-            });
-        });
-
-        // 💡 整合 ShaderGradient 背景
-        (async ()=>{
-          try{
-            const React = (await import('https://esm.sh/react@19')).default;
-            const { createRoot } = await import('https://esm.sh/react-dom@19/client');
-            const shader = await import('https://esm.sh/@shadergradient/react');
-            const { ShaderGradientCanvas, ShaderGradient } = shader;
-
-            const url = "https://shadergradient.co/customize?animate=on&axesHelper=off&bgColor1=%23000000&bgColor2=%23000000&brightness=0.8&cAzimuthAngle=270&cDistance=0.5&cPolarAngle=180&cameraZoom=15.1&color1=%2373bfc4&color2=%23ff810a&color3=%238da0ce&destination=onCanvas&embedMode=off&envPreset=city&format=gif&fov=45&frameRate=10&gizmoHelper=hide&grain=on&lightType=env&pixelDensity=1&positionX=-0.1&positionY=0&positionZ=0&range=disabled&rangeEnd=40&rangeStart=0&reflection=0.4&rotationX=0&rotationY=130&rotationZ=70&shader=defaults&type=sphere&uAmplitude=3.2&uDensity=0.8&uFrequency=5.5&uSpeed=0.3&uStrength=0.3&uTime=0&wireframe=false";
-
-            function App(){
-              return React.createElement(ShaderGradientCanvas, { style:{position:'absolute',inset:0}, pixelDensity:2, fov:45 },
-                React.createElement(ShaderGradient, { control: 'query', urlString: url })
-              );
-            }
-
-            const mount = document.getElementById('shader-root');
-            if(mount){
-              const root = createRoot(mount);
-              root.render(React.createElement(App));
-              requestAnimationFrame(()=>{
-                mount.style.position = 'fixed';
-                mount.style.inset = '0';
-                mount.style.width = '100%';
-                mount.style.height = '100%';
-                mount.style.zIndex = '0';
-                mount.style.pointerEvents = 'none';
-              });
-            }
-          }catch(err){
-            console.warn('ShaderGradient CDN load failed', err);
-          }
         })();
     </script>
 </body>

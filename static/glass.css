@@ -1,0 +1,93 @@
+/* Liquid Glass 共用樣式
+ * 依 Apple「Adopting Liquid Glass」原則：玻璃只用在浮在內容上方的導覽／控制層，
+ * 內容本身不上玻璃、不疊玻璃；圓角同心；尊重「減少透明度」「減少動態效果」。
+ * 折射：Chromium 系瀏覽器用 SVG 位移濾鏡（#liquid-refract，見 _glass_filter.html），
+ * 其他瀏覽器退回一般模糊。
+ */
+:root {
+    --glass-tint: rgba(255, 255, 255, 0.08);
+    --glass-tint-strong: rgba(255, 255, 255, 0.14);
+    --glass-edge: rgba(255, 255, 255, 0.22);
+    --glass-highlight: rgba(255, 255, 255, 0.55);
+    --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
+    --glass-blur: 18px;
+    --glass-saturate: 180%;
+    --radius-l: 28px;
+    --radius-m: 20px;
+    --radius-s: 14px;
+    --text-1: #f5f7fb;
+    --text-2: rgba(235, 240, 250, 0.68);
+    --text-3: rgba(235, 240, 250, 0.45);
+    --accent: #5ac8fa;
+    --up: #ff6b81;
+    --down: #3ddc97;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Microsoft JhengHei", "Segoe UI", sans-serif;
+}
+
+.glass {
+    position: relative;
+    isolation: isolate;
+    background: var(--glass-tint);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid var(--glass-edge);
+    box-shadow:
+        var(--glass-shadow),
+        inset 0 1px 0 var(--glass-highlight),      /* 上緣鏡面高光 */
+        inset 0 -1px 0 rgba(255, 255, 255, 0.08),  /* 下緣反光 */
+        inset 0 0 18px rgba(255, 255, 255, 0.06);  /* 內部厚度感 */
+    color: var(--text-1);
+}
+
+/* 斜向光澤：讓玻璃有「厚度」與光源方向 */
+.glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.02) 38%,
+                rgba(255, 255, 255, 0) 60%, rgba(255, 255, 255, 0.06) 100%);
+    z-index: -1;
+}
+
+/* 折射（Chromium 支援 backdrop-filter 參照 SVG 濾鏡） */
+.supports-refraction .glass.refract {
+    -webkit-backdrop-filter: url(#liquid-refract) blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: url(#liquid-refract) blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+/* 可互動的玻璃（按鈕、卡片）：按下時像液體般微縮、放開回彈 */
+.glass-interactive {
+    cursor: pointer;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.25s ease, box-shadow 0.25s ease;
+}
+.glass-interactive:hover {
+    background: var(--glass-tint-strong);
+    transform: translateY(-2px) scale(1.02);
+}
+.glass-interactive:active {
+    transform: scale(0.96);
+}
+
+.glass-pill { border-radius: 999px; }
+
+/* 無障礙：減少透明度 → 改成不透明深色面板 */
+@media (prefers-reduced-transparency: reduce) {
+    .glass, .supports-refraction .glass.refract {
+        background: rgba(28, 32, 44, 0.96);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+    .glass::before { display: none; }
+}
+
+/* 無障礙：減少動態效果 */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

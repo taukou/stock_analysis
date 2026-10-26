@@ -2,14 +2,26 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>3D 科技產業戰情室 - 核心終端版</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>產業鏈戰情室</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='glass.css') }}">
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0e14; font-family: "Microsoft JhengHei", sans-serif; }
-        svg { width: 100vw; height: 100vh; display: block; }
-        
-        #nav-header { position: absolute; top: 20px; left: 20px; z-index: 1000; background: rgba(15, 23, 42, 0.8); color: #fff; padding: 10px 15px; border-radius: 8px; border: 1px solid #1e293b; backdrop-filter: blur(5px); }
-        #nav-header a { color: #38bdf8; text-decoration: none; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: var(--font); color: var(--text-1); }
+        /* 內容層：柔和的環境光底色，讓上方的玻璃層有東西可以折射 */
+        body {
+            background:
+                radial-gradient(55% 45% at 15% 20%, rgba(56, 120, 200, 0.22), transparent 70%),
+                radial-gradient(45% 40% at 85% 80%, rgba(255, 120, 60, 0.14), transparent 70%),
+                radial-gradient(40% 35% at 55% 50%, rgba(90, 200, 250, 0.08), transparent 70%),
+                #070a12;
+        }
+        svg#canvas { width: 100vw; height: 100vh; display: block; }
+
+        #nav-header { position: absolute; top: 16px; left: 16px; z-index: 1000; padding: 10px 18px; font-size: 14px; display: flex; gap: 10px; align-items: center; }
+        #nav-header a { color: var(--text-2); text-decoration: none; transition: color 0.2s; }
+        #nav-header a:hover { color: var(--text-1); }
+        #nav-header .sep { color: var(--text-3); }
         
         .node { stroke-width: 2px; cursor: pointer; transition: all 0.3s; }
         .link { stroke: #1e293b; stroke-opacity: 0.4; stroke-width: 1.2px; }
@@ -27,9 +39,10 @@
         .text-stable { fill: #94a3b8; }
         .badge-stable { color: #94a3b8; }
 
-        #status-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 3000; display: none; text-align: center; padding: 6px 12px; font-size: 14px; font-weight: bold; }
-        #status-banner.loading { display: block; background: rgba(15, 23, 42, 0.92); color: #38bdf8; border-bottom: 1px solid #1e293b; }
-        #status-banner.error { display: block; background: #7f1d1d; color: #fecaca; border-bottom: 1px solid #e11d48; }
+        /* 狀態提示：浮動玻璃膠囊，錯誤時帶紅色調 */
+        #status-banner { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 3000; display: none; padding: 8px 18px; font-size: 13px; font-weight: 600; max-width: calc(100vw - 32px); text-align: center; }
+        #status-banner.loading { display: block; color: #bfe9ff; }
+        #status-banner.error { display: block; color: #ffd6dc; background: rgba(255, 70, 100, 0.22); border-color: rgba(255, 120, 140, 0.45); }
 
         @keyframes pulse-ring {
             0% { transform: scale(0.8); opacity: 0.5; }
@@ -37,66 +50,72 @@
         }
         .core-pulse { fill: none; stroke: #0ea5e9; stroke-width: 2px; animation: pulse-ring 2s infinite cubic-bezier(0.45, 0, 0.55, 1); pointer-events: none; transform-origin: center; transform-box: fill-box; }
 
-        /* 導覽按鈕 */
-        .nav-btn { 
+        /* 導覽按鈕：玻璃膠囊（位置用 translate 置中，hover 只改亮度不改 transform） */
+        .nav-btn {
             position: absolute; display: none; z-index: 1000;
-            background: rgba(15, 23, 42, 0.9); border: 1px solid #334155;
-            padding: 12px 25px; cursor: pointer; border-radius: 30px; color: #94a3b8; font-weight: bold; transition: all 0.3s;
-            backdrop-filter: blur(5px);
+            padding: 11px 22px; border-radius: 999px; font: inherit; font-size: 14px; font-weight: 600;
+            cursor: pointer; transition: background 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease;
         }
-        .nav-btn:hover { background: #0ea5e9; color: white; box-shadow: 0 0 15px rgba(14, 165, 233, 0.6); }
-        #btn-up { top: 80px; left: 50%; transform: translateX(-50%); }
-        #btn-down { bottom: 30px; left: 50%; transform: translateX(-50%); }
-        #btn-left { top: 50%; left: 30px; transform: translateY(-50%); }
-        #btn-right { top: 50%; right: 30px; transform: translateY(-50%); }
-        #btn-back { top: 20px; right: 20px; background: #e11d48; color: white; border: none; }
+        .nav-btn:hover { background: var(--glass-tint-strong); filter: brightness(1.15); }
+        .nav-btn:active { filter: brightness(0.9); }
+        #btn-up { top: 76px; left: 50%; transform: translateX(-50%); }
+        #btn-down { bottom: 28px; left: 50%; transform: translateX(-50%); }
+        #btn-left { top: 50%; left: 24px; transform: translateY(-50%); }
+        #btn-right { top: 50%; right: 24px; transform: translateY(-50%); }
+        #btn-back { top: 16px; right: 16px; background: rgba(255, 70, 100, 0.28); border-color: rgba(255, 140, 160, 0.5); }
 
-        /* 💡 右側資訊分析側邊欄 */
+        /* 右側分析面板：內縮的浮動玻璃面板（像 iOS 的半頁 sheet，四周露出底下內容） */
         #analysis-sidebar {
-            position: absolute; top: 0; right: -400px; width: 360px; height: 100vh;
-            background: rgba(15, 23, 42, 0.92); border-left: 1px solid #1e293b;
-            box-shadow: -10px 0 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);
-            z-index: 2000; transition: right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-            padding: 30px 20px; color: #f1f5f9; box-sizing: border-box; overflow-y: auto;
+            position: absolute; top: 12px; right: 12px; bottom: 12px; width: 360px; max-width: calc(100vw - 24px);
+            border-radius: var(--radius-l); z-index: 2000; padding: 26px 20px; box-sizing: border-box; overflow-y: auto;
+            transform: translateX(calc(100% + 24px)); opacity: 0;
+            transition: transform 0.5s cubic-bezier(0.32, 1.25, 0.6, 1), opacity 0.3s ease;
         }
-        #analysis-sidebar.open { right: 0; }
-        .sidebar-close { position: absolute; top: 20px; right: 20px; background: none; border: none; color: #64748b; font-size: 24px; cursor: pointer; transition: color 0.3s; }
-        .sidebar-close:hover { color: #f43f5e; }
-        
-        .card { background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 12px; padding: 15px; margin-bottom: 20px; }
-        .card-title { font-size: 12px; font-weight: bold; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; border-left: 3px solid #0ea5e9; padding-left: 8px; }
+        #analysis-sidebar.open { transform: translateX(0); opacity: 1; }
+        .sidebar-close {
+            position: absolute; top: 18px; right: 18px; width: 32px; height: 32px; border-radius: 50%;
+            border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.08); color: var(--text-2);
+            font-size: 18px; line-height: 1; cursor: pointer; transition: background 0.2s, color 0.2s;
+        }
+        .sidebar-close:hover { background: rgba(255, 255, 255, 0.18); color: var(--text-1); }
+
+        /* 面板內區塊：不再疊玻璃，只用淡底色分組；圓角與面板同心（28 − 內距 ≈ 16） */
+        .card { background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 14px 16px; margin-bottom: 14px; }
+        .card-title { font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 10px; }
         .data-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
-        .data-label { color: #94a3b8; }
-        .data-value { font-weight: bold; }
-        .badge-up { color: #fb7185; }
-        .badge-down { color: #34d399; }
+        .data-row:last-child { margin-bottom: 0; }
+        .data-label { color: var(--text-2); }
+        .data-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+        .badge-up { color: var(--up); }
+        .badge-down { color: var(--down); }
     </style>
 </head>
 <body>
-    <div id="status-banner"></div>
-    <div id="nav-header">
-        <a href="/">← 返回列表</a> | <strong>{{ major_id }}</strong>
-    </div>
+    {% include '_glass_filter.html' %}
+    <div id="status-banner" class="glass glass-pill" role="status" aria-live="polite"></div>
+    <nav id="nav-header" class="glass glass-pill refract" aria-label="導覽">
+        <a href="/">← 產業列表</a><span class="sep">/</span><strong>{{ major_id }}</strong>
+    </nav>
 
-    <button id="btn-back" class="nav-btn" onclick="exitFocusMode()">返回總覽</button>
-    <button id="btn-up" class="nav-btn" onclick="navigate('up')">▲</button>
-    <button id="btn-down" class="nav-btn" onclick="navigate('down')">▼</button>
-    <button id="btn-left" class="nav-btn" onclick="navigate('left')">◀</button>
-    <button id="btn-right" class="nav-btn" onclick="navigate('right')">▶</button>
+    <button id="btn-back" class="nav-btn glass refract" onclick="exitFocusMode()">返回總覽</button>
+    <button id="btn-up" class="nav-btn glass refract" onclick="navigate('up')">▲</button>
+    <button id="btn-down" class="nav-btn glass refract" onclick="navigate('down')">▼</button>
+    <button id="btn-left" class="nav-btn glass refract" onclick="navigate('left')">◀</button>
+    <button id="btn-right" class="nav-btn glass refract" onclick="navigate('right')">▶</button>
 
-    <div id="analysis-sidebar">
-        <button class="sidebar-close" onclick="closeSidebar()">×</button>
-        <h2 id="sb-company-name" style="margin-top: 10px; margin-bottom: 5px; font-size: 24px; color: #fff;">公司名稱</h2>
-        <div id="sb-stock-id" style="color: #64748b; font-size: 14px; margin-bottom: 25px;">XXXX</div>
+    <aside id="analysis-sidebar" class="glass refract" aria-label="公司分析">
+        <button class="sidebar-close" onclick="closeSidebar()" aria-label="關閉">×</button>
+        <h2 id="sb-company-name" style="margin: 6px 40px 4px 0; font-size: 24px; font-weight: 700;">公司名稱</h2>
+        <div id="sb-stock-id" style="color: var(--text-3); font-size: 14px; margin-bottom: 22px;">XXXX</div>
 
         <div class="card">
-            <div class="card-title">Market Quote</div>
+            <div class="card-title">市場報價</div>
             <div class="data-row"><span class="data-label">最新股價</span><span class="data-value" id="sb-price">--</span></div>
             <div class="data-row"><span class="data-label">今日漲跌幅</span><span class="data-value" id="sb-change">--</span></div>
         </div>
 
         <div class="card">
-            <div class="card-title">Growth Momentum</div>
+            <div class="card-title">營收動能</div>
             <div class="data-row"><span class="data-label">資料月份</span><span class="data-value" id="sb-month">--</span></div>
             <div class="data-row"><span class="data-label">營收年增率 (YoY)</span><span class="data-value" id="sb-yoy">--</span></div>
             <div class="data-row"><span class="data-label">營收月增率 (MoM)</span><span class="data-value" id="sb-mom">--</span></div>
@@ -104,12 +123,12 @@
         </div>
 
         <div class="card">
-            <div class="card-title">Smart Money Flow</div>
+            <div class="card-title">法人動向</div>
             <div class="data-row"><span class="data-label">最近交易日</span><span class="data-value" id="sb-trade-date">--</span></div>
             <div class="data-row"><span class="data-label">投信買賣超</span><span class="data-value" id="sb-trust">--</span></div>
             <div class="data-row"><span class="data-label">外資買賣超</span><span class="data-value" id="sb-foreign">--</span></div>
         </div>
-    </div>
+    </aside>
 
     <svg id="canvas"></svg>
 
