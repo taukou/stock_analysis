@@ -118,22 +118,29 @@ def build(chains: dict[str, Chain], official: dict[str, tuple[str, str]],
 -- 只新增／更新、不刪除，可重複執行。請整份貼到 Supabase SQL Editor 執行。
 begin;
 
+-- 暫存表直接複製目標表的欄位型別（例如 position_type 是 enum），值寫進來時就轉好型別
+create temp table _majors on commit drop as
+  select major_id, major_name, description from major_industries with no data;
+create temp table _nodes on commit drop as
+  select node_id, major_id, node_name, position_type, display_order from value_chain_nodes with no data;
+create temp table _companies on commit drop as
+  select stock_id, company_name, market_type, has_cb from companies with no data;
+create temp table _pairs on commit drop as
+  select node_id, stock_id from company_node_mapping with no data;
+
 -- 1. 大產業（沿用 M02–M06 佔位代號並改名）
+insert into _majors (major_id, major_name, description) values
+  {_values(majors)};
+
 update major_industries m set major_name = v.major_name, description = v.description
-from (values
-  {_values(majors)}
-) v(major_id, major_name, description)
-where m.major_id = v.major_id;
+from _majors v where m.major_id = v.major_id;
 
 insert into major_industries (major_id, major_name, description)
-select v.* from (values
-  {_values(majors)}
-) v(major_id, major_name, description)
+select v.major_id, v.major_name, v.description from _majors v
 where not exists (select 1 from major_industries m where m.major_id = v.major_id);
 
 -- 2. 產業節點
-create temp table _nodes (node_id text, major_id text, node_name text, position_type position_enum, display_order int) on commit drop;
-insert into _nodes values
+insert into _nodes (node_id, major_id, node_name, position_type, display_order) values
   {_values(nodes)};
 
 update value_chain_nodes n set node_name = v.node_name, position_type = v.position_type,
@@ -141,21 +148,23 @@ update value_chain_nodes n set node_name = v.node_name, position_type = v.positi
 from _nodes v where n.node_id = v.node_id;
 
 insert into value_chain_nodes (node_id, major_id, node_name, position_type, display_order)
-select v.* from _nodes v
+select v.node_id, v.major_id, v.node_name, v.position_type, v.display_order from _nodes v
 where not exists (select 1 from value_chain_nodes n where n.node_id = v.node_id);
 
 -- 3. 公司（名稱與市場取自交易所最新行情；已存在的公司不更動）
+insert into _companies (stock_id, company_name, market_type, has_cb) values
+  {_values(company_rows)};
+
 insert into companies (stock_id, company_name, market_type, has_cb)
-select v.* from (values
-  {_values(company_rows)}
-) v(stock_id, company_name, market_type, has_cb)
+select v.stock_id, v.company_name, v.market_type, v.has_cb from _companies v
 where not exists (select 1 from companies c where c.stock_id = v.stock_id);
 
 -- 4. 節點與公司對應
+insert into _pairs (node_id, stock_id) values
+  {_values(pairs)};
+
 insert into company_node_mapping (node_id, stock_id)
-select v.* from (values
-  {_values(pairs)}
-) v(node_id, stock_id)
+select v.node_id, v.stock_id from _pairs v
 where not exists (select 1 from company_node_mapping m
                   where m.node_id = v.node_id and m.stock_id = v.stock_id);
 
