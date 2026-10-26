@@ -132,7 +132,7 @@ select v.* from (values
 where not exists (select 1 from major_industries m where m.major_id = v.major_id);
 
 -- 2. 產業節點
-create temp table _nodes (node_id text, major_id text, node_name text, position_type text, display_order int) on commit drop;
+create temp table _nodes (node_id text, major_id text, node_name text, position_type position_enum, display_order int) on commit drop;
 insert into _nodes values
   {_values(nodes)};
 
