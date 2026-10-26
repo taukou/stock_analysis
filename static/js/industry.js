@@ -19,33 +19,73 @@ svg.append("defs").append("marker").attr("id", "supply-arrow").attr("viewBox", "
     .attr("refX", 9).attr("refY", 5).attr("markerWidth", 7).attr("markerHeight", 7).attr("orient", "auto")
     .append("path").attr("d", "M0,0 L10,5 L0,10 z").attr("fill", "#94a3b8");
 
+// 版面由 Layout 決定（總覽：三欄固定位置；聚焦：依漲跌排序的圓環或排行網格），
+// 模擬只負責把節點平滑地移到目標位置 (tx, ty)：不用互斥力、連線拉力與碰撞
+// （格子大小已保證球與標籤不重疊；碰撞反而會讓換位的球互相卡住）
 const simulation = d3.forceSimulation()
-    .force("link", d3.forceLink().id(d => d.id).distance(160))
-    .force("charge", d3.forceManyBody().strength(-400))
-    .force("collision", d3.forceCollide().radius(d => getRadius(d) + 35));
+    .force("link", d3.forceLink().id(d => d.id).strength(0))
+    .force("x", d3.forceX(d => d.tx ?? width / 2).strength(0.3))
+    .force("y", d3.forceY(d => d.ty ?? height / 2).strength(0.3));
+
+// 聚焦模式的版面狀態：公司球縮放比例與標籤樣式（full／compact／none）
+let focusLayout = { scale: 1, label: "full" };
+
+// 聚焦版面可用區域：避開上方切換鈕／▲、下方 ▼、左右導覽鈕，側邊欄開啟時再扣掉面板
+function focusArea() {
+    const sidebar = document.body.classList.contains("sidebar-open");
+    const left = 170, right = width - (sidebar ? 396 + 150 : 170), top = 120, bottom = height - 80;
+    return { x: left, y: top, w: Math.max(240, right - left), h: Math.max(240, bottom - top) };
+}
+
+// 依目前模式計算每個節點的目標位置；聚焦模式依目前區間漲跌重新排序
+function layoutNodes() {
+    if (!currentFocusedIndustry) {
+        focusLayout = { scale: 1, label: "full" };
+        const pos = Layout.overviewPositions(nodes, width, height);
+        nodes.forEach(n => {
+            const p = pos.get(n.id);
+            if (!p) return;
+            [n.tx, n.ty] = p;
+            if (!n.dragged) { n.fx = n.tx; n.fy = n.ty; }
+        });
+        return;
+    }
+    const [center, ...companies] = nodes;
+    const area = focusArea();
+    center.tx = center.fx = area.x + area.w / 2;
+    center.ty = center.fy = area.y + area.h / 2;
+    const plan = Layout.focusPlan(companies, area);
+    focusLayout = { scale: plan.scale, label: plan.label };
+    plan.sorted.forEach((c, i) => { [c.tx, c.ty] = plan.positions[i]; });
+}
+
+// 版面或球大小改變後（切區間、側邊欄開關、視窗大小）：重算目標位置、重畫球與標籤並讓模擬動起來
+function relayout(alpha = 0.5) {
+    layoutNodes();
+    simulation.force("x").x(d => d.tx ?? width / 2);   // forceX 會快取目標，需重新指定
+    simulation.force("y").y(d => d.ty ?? height / 2);
+    repaintAll();
+    simulation.alpha(alpha).restart();
+}
 
 function handleResize() {
     width = window.innerWidth; height = window.innerHeight;
     svg.attr("width", width).attr("height", height);
-    simulation.force("x", d3.forceX(d => {
-        if (currentFocusedIndustry) return width / 2;
-        if (d.group === 'Upstream') return width * 0.15;
-        if (d.group === 'Midstream') return width * 0.5;
-        if (d.group === 'Downstream') return width * 0.85;
-        return width * 0.5;
-    }).strength(3.0));
-    simulation.force("y", d3.forceY(height / 2).strength(0.8));
     // 💡 更新底部標籤位置
     labelLayer.selectAll("text").attr("y", height - 20).attr("x", (d, i) => {
         if (i === 0) return width * 0.15;
         if (i === 1) return width * 0.5;
         return width * 0.85;
     });
-    simulation.alpha(0.3).restart();
+    relayout(0.3);
 }
 window.addEventListener("resize", handleResize);
 
-function getRadius(d) { return d.type === "industry" ? 45 : 25 + Math.min(Math.abs(d.change || 0) * 1.5, 15); }
+// 球大小依漲跌幅（25～40），聚焦公司很多時依版面等比例縮小
+function getRadius(d) {
+    if (d.type === "industry") return 45;
+    return (25 + Math.min(Math.abs(d.change || 0) * 1.5, 15)) * focusLayout.scale;
+}
 
 function getHexPath(r) {
     const points = [];
@@ -160,11 +200,16 @@ function renderTrends(stockId, t) {
 
 function renderStar(stockId) {
     const star = document.getElementById("sb-star");
-    const on = Fmt.loadWatchlist(localStorage).includes(stockId);
+    const on = Fmt.loadWatchlist(Fmt.safeStorage()).includes(stockId);
     star.textContent = on ? "★" : "☆";
     star.classList.toggle("on", on);
     star.setAttribute("aria-label", on ? "移出自選" : "加入自選");
-    star.onclick = () => { Fmt.toggleWatch(localStorage, stockId); renderStar(stockId); };
+    star.onclick = () => {
+        if (Fmt.toggleWatch(Fmt.safeStorage(), stockId) === null) {
+            lastError = "自選股無法儲存：瀏覽器封鎖了本機儲存空間"; renderBanner();
+        }
+        renderStar(stockId);
+    };
 }
 
 // 💡 側邊欄異步獲取跨表資料（公司分析＋趨勢同時請求，任一失敗即走 track 錯誤提示）
@@ -212,16 +257,31 @@ function openSidebar(companyId) {
             renderStar(stockId);
             // 先開面板再畫圖，圖表才量得到容器寬度
             document.getElementById("analysis-sidebar").classList.add("open");
+            const wasOpen = document.body.classList.contains("sidebar-open");
             document.body.classList.add("sidebar-open");
+            if (!wasOpen && currentFocusedIndustry) relayout(0.4);   // 公司排到面板左邊
             renderTrends(stockId, trends);
         }).catch(showRenderError);
 }
 
-function closeSidebar() { lastTrends = null; document.getElementById("analysis-sidebar").classList.remove("open"); document.body.classList.remove("sidebar-open"); }
+// relayoutFocus=false：呼叫端自己會重排（切換節點、回總覽）
+function closeSidebar(relayoutFocus = true) {
+    sidebarSeq++;   // 尚未回來的 openSidebar 回應作廢，避免面板在使用者離開後又打開
+    lastTrends = null;
+    document.getElementById("analysis-sidebar").classList.remove("open");
+    const wasOpen = document.body.classList.contains("sidebar-open");
+    document.body.classList.remove("sidebar-open");
+    if (wasOpen && relayoutFocus && currentFocusedIndustry) relayout(0.4);
+}
 
+// 聚焦請求序號：較晚發出的聚焦才算數，舊回應（例如連按兩次 ▼）直接丟掉
+let focusSeq = 0;
+// 回傳 promise：true = 這次聚焦已畫上畫面；false = 被較新的操作取代或失敗
 function enterFocusMode(d, direction = 'center') {
-    currentFocusedIndustry = d; closeSidebar();
-    return track(fetchJSON(`/api/node_companies/${d.id}?period=${currentPeriod}`), "載入公司清單").then(cs => {
+    const seq = ++focusSeq, period = currentPeriod;
+    currentFocusedIndustry = d; closeSidebar(false);
+    return track(fetchJSON(`/api/node_companies/${encodeURIComponent(d.id)}?period=${period}`), "載入公司清單").then(cs => {
+        if (seq !== focusSeq) return false;
         let startX = width / 2, startY = height / 2;
         if(direction === 'up') startY = height + 200;
         if(direction === 'down') startY = -200;
@@ -235,7 +295,14 @@ function enterFocusMode(d, direction = 'center') {
         links = cs.map(c => ({ source: d.id, target: c.id }));
         d3.select("#btn-back").style("display", "block");
         updateNavButtons(); handleResize(); update();
-    }).catch(err => { currentFocusedIndustry = null; showRenderError(err); });
+        // 等待期間切換了區間：這批是舊區間的數字，改抓目前區間
+        if (period !== currentPeriod) refreshFocusPeriod();
+        return true;
+    }).catch(err => {
+        if (seq === focusSeq) currentFocusedIndustry = null;
+        showRenderError(err);
+        return false;
+    });
 }
 
 // 搜尋／自選股深連結：?node=N201&company=2330 → 進入該節點，公司清單載完後再開側邊欄
@@ -244,14 +311,15 @@ function openDeepLink() {
     const nodeId = q.get("node"), company = q.get("company");
     const d = nodeId && allIndustryData.find(n => n.id === nodeId);
     if (!d) return;
-    return enterFocusMode(d).then(() => {
-        if (company && currentFocusedIndustry === d) openSidebar("c_" + company);
+    const stockId = company && /^[0-9A-Z]{4,6}$/.test(company) ? company : null;
+    return enterFocusMode(d).then(ok => {
+        if (ok && stockId && currentFocusedIndustry === d) openSidebar("c_" + stockId);
     });
 }
 
 function exitFocusMode() {
-    if(nodes[0]) { nodes[0].fx = null; nodes[0].fy = null; }
-    currentFocusedIndustry = null; links = []; closeSidebar();
+    focusSeq++;   // 進行中的聚焦請求作廢
+    currentFocusedIndustry = null; links = []; closeSidebar(false);
     nodes = allIndustryData.map(d => ({...d}));
     d3.selectAll(".nav-btn").style("display", "none");
     handleResize(); update();
@@ -297,8 +365,15 @@ function paintNode(d, g) {
     const c = d.change, r = getRadius(d);
     g.select("circle.node").attr("r", r)
         .attr("class", Fmt.isNil(c) || c === 0 ? "node stable-node" : (c > 0 ? "node up-node" : "node down-node"));
-    g.select("tspan.label-price").attr("class", `label-price ${Fmt.upDownClass(c, 'text')}`)
-        .text(`${Fmt.fmtNum(d.price)} (${Fmt.fmtSigned(c, "%")})`);
+    g.select("circle.node title").text(`${d.name} ${Fmt.fmtNum(d.price)} (${Fmt.fmtSigned(c, "%")})`);
+    // 標籤依格子大小：完整（名稱＋股價（漲跌））／精簡（名稱＋漲跌，字小一號）／不顯示
+    const mode = focusLayout.label, compact = mode === "compact";
+    const label = g.select("text.label").style("display", mode === "none" ? "none" : null)
+        .attr("dy", r + (compact ? 12 : 16));
+    label.select("tspan.label-name").style("font-size", compact ? "11px" : null);
+    label.select("tspan.label-price").attr("class", `label-price ${Fmt.upDownClass(c, 'text')}`)
+        .attr("dy", compact ? "1.15em" : "1.2em").style("font-size", compact ? "10px" : null)
+        .text(compact ? Fmt.fmtSigned(c, "%") : `${Fmt.fmtNum(d.price)} (${Fmt.fmtSigned(c, "%")})`);
     g.select("text.ex-tag").attr("x", r * 0.7).attr("y", -r * 0.7)
         .text(d.ex ? (EX_SHORT[d.ex] || d.ex) : "").style("display", d.ex ? null : "none");
     const sigs = d.signals || [];
@@ -328,18 +403,21 @@ function setPeriod(p) {
     });
     renderExBadge();
     loadHeat();
-    if (currentFocusedIndustry) {
-        const focusId = currentFocusedIndustry.id;
-        track(fetchJSON(`/api/node_companies/${focusId}?period=${p}`), "載入公司清單").then(cs => {
-            if (p !== currentPeriod || !currentFocusedIndustry || currentFocusedIndustry.id !== focusId) return;
-            const byId = new Map(cs.map(c => [c.id, c]));
-            nodes.forEach(n => {
-                const c = byId.get(n.id);
-                if (c) { n.price = c.price; n.change = c.change; n.ex = c.ex; n.signals = c.signals; }
-            });
-            repaintAll();
-        }).catch(showRenderError);
-    }
+    if (currentFocusedIndustry) refreshFocusPeriod();
+}
+
+// 聚焦中：抓目前區間的公司數字，就地更新（不重建節點），再依新漲跌重新排序、調整球大小
+function refreshFocusPeriod() {
+    const p = currentPeriod, focusId = currentFocusedIndustry.id;
+    track(fetchJSON(`/api/node_companies/${encodeURIComponent(focusId)}?period=${p}`), "載入公司清單").then(cs => {
+        if (p !== currentPeriod || !currentFocusedIndustry || currentFocusedIndustry.id !== focusId) return;
+        const byId = new Map(cs.map(c => [c.id, c]));
+        nodes.forEach(n => {
+            const c = byId.get(n.id);
+            if (c) { n.price = c.price; n.change = c.change; n.ex = c.ex; n.signals = c.signals; }
+        });
+        relayout(0.4);
+    }).catch(showRenderError);
 }
 document.querySelectorAll("#period-switch button").forEach(b => b.addEventListener("click", () => setPeriod(Number(b.dataset.period))));
 
@@ -386,11 +464,11 @@ function update() {
             el.append("path").attr("d", getHexPath(r)).attr("class", "node industry-node");
             el.append("circle").attr("r", 5).attr("fill", "#fff").style("opacity", 0.8);
         } else {
-            el.append("circle").attr("r", r).attr("class", "node stable-node");
+            el.append("circle").attr("r", r).attr("class", "node stable-node").append("title");
         }
     });
 
-    const text = nodeEnter.append("text").attr("text-anchor", "middle").attr("dy", d => getRadius(d) + 25);
+    const text = nodeEnter.append("text").attr("class", "label").attr("text-anchor", "middle").attr("dy", d => getRadius(d) + 25);
     text.append("tspan").attr("x", 0).attr("class", "label-name").text(d => d.name);
     text.append("tspan").attr("x", 0).attr("dy", "1.2em").attr("class", "label-price");
     // 公司球右上角除權息標籤、左上角訊號星點（加在名稱文字之後，tick 的 select("text") 仍取到名稱）
@@ -434,7 +512,13 @@ function update() {
 
 function dragstarted(e, d) { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
 function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
-function dragended(e, d) { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+// 放開後：總覽節點留在放下的位置；聚焦中心固定回原位；公司球回到排序後的格子
+function dragended(e, d) {
+    if (!e.active) simulation.alphaTarget(0);
+    if (!currentFocusedIndustry) { d.dragged = true; return; }
+    if (d === nodes[0]) { d.fx = d.tx; d.fy = d.ty; return; }
+    d.fx = null; d.fy = null;
+}
 svg.call(d3.zoom().on("zoom", (e) => container.attr("transform", e.transform)));
 
 Common.mountFreshness(document.getElementById("freshness"));
