@@ -191,3 +191,10 @@ def test_industry_page_has_trend_containers(client):
     for needle in ('id="sb-chart-price"', 'id="sb-chart-yoy"', 'id="sb-chart-flow"',
                    'id="sb-signals"', 'id="sb-ex-list"', 'id="sb-star"', '/static/js/charts.js'):
         assert needle in html
+
+
+def test_industry_page_has_period_switch(client):
+    html = client.get("/industry/M01").get_data(as_text=True)
+    assert 'id="period-switch"' in html
+    for p in (1, 5, 20):
+        assert f'data-period="{p}"' in html

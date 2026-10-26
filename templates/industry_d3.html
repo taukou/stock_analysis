@@ -30,7 +30,10 @@
         .up-node { fill: #f43f5e !important; } 
         .down-node { fill: #10b981 !important; }
         .stable-node { fill: #64748b !important; }
-        .industry-node { fill: #0ea5e9 !important; stroke: #fff !important; }
+        .industry-node { stroke: #fff !important; }   /* 填色由 JS 依區間熱度設定（Fmt.heatColor） */
+        .supply-link { stroke: #94a3b8; stroke-opacity: 0.55; stroke-width: 1.2px; pointer-events: none; }
+        .ex-tag { fill: var(--ex); font-size: 10px; font-weight: 700; pointer-events: none; paint-order: stroke; stroke: rgba(7, 10, 18, 0.85); stroke-width: 3px; }
+        .sig-star { fill: #fbbf24; font-size: 13px; cursor: help; paint-order: stroke; stroke: rgba(7, 10, 18, 0.85); stroke-width: 2px; }
         
         .label-name { font-weight: bold; fill: #f1f5f9; font-size: 13px; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none; }
         .label-price { font-size: 11px; font-weight: bold; pointer-events: none; }
@@ -40,7 +43,7 @@
         .badge-stable { color: #94a3b8; }
 
         /* 狀態提示：浮動玻璃膠囊，錯誤時帶紅色調 */
-        #status-banner { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 3000; display: none; padding: 8px 18px; font-size: 13px; font-weight: 600; max-width: calc(100vw - 32px); text-align: center; }
+        #status-banner { position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%); z-index: 3000; display: none; padding: 8px 18px; font-size: 13px; font-weight: 600; max-width: calc(100vw - 32px); text-align: center; }
         #status-banner.loading { display: block; color: #bfe9ff; }
         #status-banner.error { display: block; color: #ffd6dc; background: rgba(255, 70, 100, 0.22); border-color: rgba(255, 120, 140, 0.45); }
 
@@ -58,11 +61,22 @@
         }
         .nav-btn:hover { background: var(--glass-tint-strong); filter: brightness(1.15); }
         .nav-btn:active { filter: brightness(0.9); }
-        #btn-up { top: 76px; left: 50%; transform: translateX(-50%); }
+        #btn-up { top: 68px; left: 50%; transform: translateX(-50%); }
         #btn-down { bottom: 28px; left: 50%; transform: translateX(-50%); }
         #btn-left { top: 50%; left: 24px; transform: translateY(-50%); }
         #btn-right { top: 50%; right: 24px; transform: translateY(-50%); }
         #btn-back { top: 16px; right: 16px; background: rgba(255, 70, 100, 0.28); border-color: rgba(255, 140, 160, 0.5); }
+
+        /* 區間切換：置於上方中央（top:16px），#btn-up 在其下方 top:68px；狀態橫幅改放下方避免重疊 */
+        #period-switch { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 1100; display: flex; gap: 2px; padding: 4px; }
+        #period-switch button {
+            border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600;
+            padding: 7px 16px; border-radius: 999px; cursor: pointer; transition: background 0.2s, color 0.2s;
+        }
+        #period-switch button:hover { color: var(--text-1); }
+        #period-switch button.active { background: rgba(255, 255, 255, 0.18); color: var(--text-1); }
+        /* 側邊欄開啟時，切換與 #btn-up 一起置中於剩餘空間（面板 360 + 邊距 24） */
+        body.sidebar-open #period-switch, body.sidebar-open #btn-up { left: calc((100vw - 384px) / 2); }
 
         /* 右側分析面板：內縮的浮動玻璃面板（像 iOS 的半頁 sheet，四周露出底下內容） */
         #analysis-sidebar {
@@ -113,6 +127,12 @@
     <nav id="nav-header" class="glass glass-pill refract" aria-label="導覽">
         <a href="/">← 產業列表</a><span class="sep">/</span><strong>{{ major_id }}</strong>
     </nav>
+
+    <div id="period-switch" class="glass glass-pill" role="group" aria-label="區間">
+        <button type="button" data-period="1" class="active" aria-pressed="true">今日</button>
+        <button type="button" data-period="5" aria-pressed="false">5 日</button>
+        <button type="button" data-period="20" aria-pressed="false">20 日</button>
+    </div>
 
     <button id="btn-back" class="nav-btn glass refract" onclick="exitFocusMode()">返回總覽</button>
     <button id="btn-up" class="nav-btn glass refract" onclick="navigate('up')">▲</button>
