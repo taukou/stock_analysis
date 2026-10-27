@@ -4,6 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import ai_picks
 from sync.index_backfill import backfill_index
 from sync.index_job import sync_index
 from sync.jobs import (JobResult, sync_emerging, sync_ex_rights,
@@ -11,6 +12,7 @@ from sync.jobs import (JobResult, sync_emerging, sync_ex_rights,
 from sync.logsetup import setup_logging
 from sync.store import make_store
 
+sync_ai_picks = ai_picks.sync_ai_picks
 LOG_ROOT = Path(__file__).resolve().parent
 log = logging.getLogger("run_sync")
 
@@ -43,9 +45,15 @@ def _run_one(store, now: datetime, job) -> tuple[JobResult, bool]:
 def run(store, now: datetime, jobs=None, post_jobs=None) -> int:
     failed = False
     wrote: set[str] = set()
-    # 指數更新排在日常工作與後處理之後；明確傳入 jobs（測試）時預設不跑指數
+    # 指數更新排在日常工作與後處理之後，AI 推薦再排在指數之後（要用最新指數）；
+    # 沒設定 GEMINI_API_KEY 就不跑 AI 推薦，也不記錄（不算失敗）。明確傳入 jobs（測試）時預設都不跑
     if post_jobs is None:
-        post_jobs = [sync_index, backfill_index] if jobs is None else []
+        post_jobs = [] if jobs is not None else [sync_index, backfill_index]
+        if jobs is None:
+            if ai_picks.has_key():
+                post_jobs.append(sync_ai_picks)
+            else:
+                log.info("未設定 GEMINI_API_KEY，略過 AI 推薦")
     for job in (jobs if jobs is not None else _default_jobs()):
         result, bad = _run_one(store, now, job)
         failed = failed or bad

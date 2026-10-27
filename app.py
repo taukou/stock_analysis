@@ -9,6 +9,7 @@ from database import (
     fetch_revenue_since, fetch_sync_runs, get_all_industries, get_company_analysis,
     get_node_companies, search_companies,
 )
+import ai_picks
 from freshness import freshness
 import index_data
 from index_data import index_cache, mapping_cache
@@ -108,7 +109,7 @@ def build_daily_digest():
 
 @app.route('/daily')
 def daily_view():
-    """每日摘要頁：強弱產業與節點、法人流向、個股訊號；資料讀不到時顯示提示而非 500。"""
+    """每日摘要頁：AI 推薦、強弱產業與節點、法人流向；資料讀不到時顯示提示而非 500。"""
     try:
         fresh = freshness(fetch_sync_runs(), datetime.now())["message"]
     except Exception:
@@ -119,8 +120,14 @@ def daily_view():
         digest, snap = build_daily_digest()
     except Exception:
         app.logger.exception("每日摘要讀取失敗")
+    try:
+        ai = ai_picks.load_latest()
+    except Exception:
+        app.logger.exception("AI 推薦讀取失敗")
+        ai = None
     return render_template('daily.html', digest=digest, freshness=fresh, MARKET_NOTE=MARKET_NOTE, SURVIVOR_NOTE=SURVIVOR_NOTE,
-                           flow_date=snap.get("flow_date"), latest_date=snap.get("latest_date"))
+                           flow_date=snap.get("flow_date"), latest_date=snap.get("latest_date"),
+                           ai=ai, ai_key=ai_picks.has_key(), AI_DISCLAIMER=ai_picks.DISCLAIMER)
 
 @app.route('/shader-test')
 def shader_test():

@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -367,7 +367,8 @@ def test_daily_page_renders_with_note(client, monkeypatch):
     res = client.get("/daily")
     html = res.get_data(as_text=True)
     assert res.status_code == 200
-    assert MARKET_NOTE in html and "半導體" in html and "晶圓代工" in html and "台積電" in html
+    assert MARKET_NOTE in html and "半導體" in html and "晶圓代工" in html
+    assert "個股訊號" not in html and "投信連買" not in html   # 訊號改給 AI 參考，不再列出
     assert "法人資料至 2026-10-22" in html
     assert "+5 張" in html and "+1 張" not in html and "近 5 日" in html   # 5 日合計（5000 股 = 5 張）
     from industry_trends import SURVIVOR_NOTE
@@ -397,7 +398,6 @@ def test_daily_page_keeps_snapshot_sections_when_index_fails(client, monkeypatch
     assert res.status_code == 200
     assert "晶圓代工" in html and "+0.50%" in html          # 強弱節點
     assert "+5 張" in html                                  # 法人買超節點
-    assert "台積電" in html and "投信連買" in html          # 個股訊號
     assert "強弱產業" in html and "資料暫時無法讀取" in html  # 指數區塊只顯示提示
 
 
@@ -410,7 +410,7 @@ def test_daily_page_survives_node_name_failure(client, monkeypatch):
     monkeypatch.setattr(app_module, "fetch_node_names", boom)
     res = client.get("/daily")
     html = res.get_data(as_text=True)
-    assert res.status_code == 200 and ">N1</a>" in html and "台積電" in html
+    assert res.status_code == 200 and ">N1</a>" in html
 
 
 def test_daily_page_shows_message_when_data_unavailable(client, monkeypatch):
@@ -420,6 +420,39 @@ def test_daily_page_shows_message_when_data_unavailable(client, monkeypatch):
     monkeypatch.setattr(app_module, "fetch_sync_runs", lambda: [])
     res = client.get("/daily")
     assert res.status_code == 200 and "資料暫時無法讀取" in res.get_data(as_text=True)
+
+
+def test_daily_ai_card_without_key_or_picks(client, monkeypatch):
+    _daily_snap_and_mapping(monkeypatch)
+    _patch_index(monkeypatch, _index({"major:M01": _pts(5), "market:TW": _pts(5)}))
+    monkeypatch.setattr(app_module, "fetch_node_names", lambda: {"N1": "晶圓代工"})
+    html = client.get("/daily").get_data(as_text=True)
+    assert "AI 推薦" in html and "尚未設定 AI 金鑰" in html
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    assert "推薦尚未產生" in client.get("/daily").get_data(as_text=True)
+
+
+def test_daily_ai_card_shows_picks_even_when_data_unavailable(client, monkeypatch):
+    import ai_picks
+    ctx = {"date": "2026-10-21"}
+    ai_picks.save({"overview": "資金轉向半導體<b>", "picks": [
+        {"kind": "industry", "id": "M01", "name": "半導體", "major_id": "M01", "node_id": None,
+         "reason": "外資回補", "evidence": ["外資 5 日 +4 萬張"]},
+        {"kind": "stock", "id": "2330", "name": "台積電", "major_id": "M01", "node_id": "N1",
+         "reason": "投信連買", "evidence": []}]}, ctx, "gemini-x", datetime(2026, 10, 21, 16, 40))
+    _daily_snap_and_mapping(monkeypatch)
+    _patch_index(monkeypatch, _index({"major:M01": _pts(5), "market:TW": _pts(5)}))
+    monkeypatch.setattr(app_module, "fetch_node_names", lambda: {"N1": "晶圓代工"})
+    html = client.get("/daily").get_data(as_text=True)
+    assert "資金轉向半導體&lt;b&gt;" in html                       # 跳脫 AI 文字
+    assert 'href="/industry/M01?trend=open">半導體' in html
+    assert 'href="/industry/M01?node=N1&company=2330">台積電' in html
+    assert "外資 5 日 +4 萬張" in html and ai_picks.DISCLAIMER in html
+    assert "今日推薦尚未產生，以下為 2026-10-21 的推薦" in html    # 股價已到 10-22
+    # 其他資料讀不到時 AI 卡片照常顯示
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(err=RuntimeError("down")))
+    html = client.get("/daily").get_data(as_text=True)
+    assert "台積電" in html and "資料暫時無法讀取" in html
 
 
 def test_home_has_ranking_and_rotation_sections(client):

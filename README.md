@@ -41,5 +41,13 @@ insert into industry_links (from_node_id, to_node_id) values ('N101', 'N201');
 3. 成分股（節點公司）變動後要重算：`.venv\Scripts\python.exe rebuild_index.py`（從一年前以 100 起算，全部算完才開始寫入；抓取失敗不寫任何列，寫入中斷則重跑一次即可修復）。
    新增節點後也請執行重算：補抓後才新增的範圍，歷史只有資料庫最早報價日起，重算後才會有完整一年。
 
+## AI 推薦（今日摘要頁）
+
+1. 到 https://aistudio.google.com 申請 Gemini API 金鑰，自己在 `.env` 加一行 `GEMINI_API_KEY=你的金鑰`（不要貼到任何對話或檔案裡）。
+2. 每天同步完（產業指數更新後）自動產生一次，存在 `reports\ai_picks\<資料日>.json`；沒設定金鑰時略過，不算同步失敗。
+3. 手動重新產生：`.venv\Scripts\python.exe ai_picks.py`。
+4. 預設用 `gemini-flash-latest`；找不到時改用 `gemini-2.5-flash`，也可在 `.env` 設 `GEMINI_MODEL=模型名稱` 指定。
+5. AI 只能從當天的產業與候選個股名單挑（有訊號的公司與法人 5 日買超前幾名），名單外的推薦會被丟掉。
+
 ## 紀錄
 `logs/`（`web.log`、`sync.log`，保留 30 天），不進 git。

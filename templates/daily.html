@@ -41,6 +41,19 @@
         .note { color: var(--text-3); font-size: 0.8rem; line-height: 1.6; margin-top: 10px; }
         .empty { text-align: center; color: var(--text-2); padding: 40px 0; }
         .none { color: var(--text-3); font-size: 0.85rem; }
+        .ai-overview { line-height: 1.8; margin-bottom: 14px; }
+        .ai-stale { color: var(--text-3); font-size: 0.85rem; margin-bottom: 8px; }
+        .ai-pick { padding: 12px 0; border-top: 1px solid rgba(255, 255, 255, 0.10); }
+        .ai-head { display: flex; align-items: baseline; gap: 8px; }
+        .ai-head a { color: var(--text-1); font-weight: 600; text-decoration: none; }
+        .ai-head a:hover { text-decoration: underline; }
+        .ai-head small { color: var(--text-3); }
+        .ai-kind { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; color: var(--text-2);
+                   border: 1px solid rgba(255, 255, 255, 0.25); }
+        .ai-reason { color: var(--text-2); line-height: 1.7; margin: 6px 0; }
+        .ai-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+        .ai-tags span { font-size: 0.78rem; padding: 2px 10px; border-radius: 999px; color: var(--text-1);
+                        background: rgba(255, 255, 255, 0.10); border: 1px solid rgba(255, 255, 255, 0.18); }
         @media (max-width: 600px) { .cols { grid-template-columns: 1fr; } }
         @media (max-width: 520px) {
             .top-bar { gap: 8px; padding: 6px 10px; font-size: 0.8rem; max-width: calc(100vw - 16px); }
@@ -78,10 +91,39 @@
 
     <main>
         <h1>今日摘要</h1>
+        <p class="sub">股價資料 {{ latest_date or '—' }}</p>
+
+        {# AI 推薦：讀本機檔案，與其他區塊互不影響 #}
+        <section class="card glass ai-card">
+            <h2>AI 推薦</h2>
+            {% if ai %}
+            {% if latest_date and ai.date != latest_date %}<p class="ai-stale">今日推薦尚未產生，以下為 {{ ai.date }} 的推薦</p>{% endif %}
+            {% if ai.overview %}<p class="ai-overview">{{ ai.overview }}</p>{% endif %}
+            {% for p in ai.picks %}
+            <div class="ai-pick">
+                <div class="ai-head">
+                    <span class="ai-kind">{{ '產業' if p.kind == 'industry' else '個股' }}</span>
+                    {% if p.kind == 'industry' %}
+                    <a href="/industry/{{ p.major_id | urlencode }}?trend=open">{{ p.name }}</a>
+                    {% else %}
+                    <a href="/industry/{{ p.major_id | urlencode }}?node={{ p.node_id | urlencode }}&company={{ p.id | urlencode }}">{{ p.name }}</a><small>{{ p.id }}</small>
+                    {% endif %}
+                </div>
+                <p class="ai-reason">{{ p.reason }}</p>
+                {% if p.evidence %}<div class="ai-tags">{% for e in p.evidence %}<span>{{ e }}</span>{% endfor %}</div>{% endif %}
+            </div>
+            {% endfor %}
+            <p class="note">資料日期 {{ ai.date }} · 產生於 {{ ai.generated_at }} · {{ ai.model }} · {{ AI_DISCLAIMER }}</p>
+            {% elif ai_key %}
+            <p class="none">推薦尚未產生，下次同步後會出現（也可手動執行 ai_picks.py）</p>
+            {% else %}
+            <p class="none">尚未設定 AI 金鑰：在 .env 加一行 GEMINI_API_KEY=你的金鑰，下次同步（或手動執行 ai_picks.py）就會產生</p>
+            {% endif %}
+        </section>
+
         {% if digest is none %}
         <p class="empty">資料暫時無法讀取</p>
         {% else %}
-        <p class="sub">股價資料 {{ latest_date or '—' }}</p>
 
         <section class="card glass">
             <h2>強弱產業</h2>
@@ -129,16 +171,6 @@
                 <span>外資 {{ lots(n.foreign_lots) }} · 投信 {{ lots(n.trust_lots) }}</span></div>
             {% else %}<p class="none">無資料</p>{% endfor %}
             <p class="note">依近 5 日外資＋投信合計淨買超（張）排序；法人資料至 {{ flow_date or '—' }}。</p>
-        </section>
-
-        <section class="card glass">
-            <h2>個股訊號</h2>
-            {% for g in digest.signal_groups %}
-            <h3 style="font-size:.85rem;color:var(--text-2);font-weight:500;margin:10px 0 4px">{{ g.label }}（{{ g.companies | length }}）</h3>
-            {% for c in g.companies %}
-            <div class="item"><span><a href="/industry/{{ c.major_id }}">{{ c.name }}</a><small>{{ c.stock_id }}</small></span><small>{{ c.detail }}</small></div>
-            {% endfor %}
-            {% else %}<p class="none">今日無訊號</p>{% endfor %}
         </section>
         {% endif %}
     </main>
