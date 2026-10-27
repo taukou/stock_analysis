@@ -138,3 +138,18 @@ def test_index_job_runs_after_daily_jobs():
     assert run_sync.run(store, NOW, jobs, post_jobs=[idx]) == 1
     assert order[-1] == "index" and len(order) == 6
     assert [r.dataset for r in store.runs][-1] == "industry_index"
+
+
+def test_backfill_runs_right_after_sync_index_even_if_it_failed(monkeypatch):
+    store = FakeStore()
+    order = []
+    monkeypatch.setattr(run_sync, "sync_index",
+                        lambda s, n: (order.append("index"),
+                                      JobResult("industry_index", "failed", None, 0, "x"))[1])
+    monkeypatch.setattr(run_sync, "backfill_index",
+                        lambda s, n: (order.append("backfill"),
+                                      JobResult("index_backfill", "ok", None, 0, ""))[1])
+    monkeypatch.setattr(run_sync, "_default_jobs", lambda: [])
+    assert run_sync.run(store, NOW) == 1
+    assert order == ["index", "backfill"]
+    assert [r.dataset for r in store.runs] == ["industry_index", "index_backfill"]

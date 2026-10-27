@@ -4,6 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from sync.index_backfill import backfill_index
 from sync.index_job import sync_index
 from sync.jobs import (JobResult, sync_emerging, sync_ex_rights,
                        sync_institutional, sync_quotes, sync_revenue)
@@ -44,7 +45,7 @@ def run(store, now: datetime, jobs=None, post_jobs=None) -> int:
     wrote: set[str] = set()
     # 指數更新排在日常工作與後處理之後；明確傳入 jobs（測試）時預設不跑指數
     if post_jobs is None:
-        post_jobs = [sync_index] if jobs is None else []
+        post_jobs = [sync_index, backfill_index] if jobs is None else []
     for job in (jobs if jobs is not None else _default_jobs()):
         result, bad = _run_one(store, now, job)
         failed = failed or bad

@@ -19,6 +19,15 @@ class Store:
         data = res.data or []
         return data[0][column] if data else None
 
+    def first_value(self, table: str, column: str,
+                    filters: dict[str, str] | None = None) -> str | None:
+        q = self.client.table(table).select(column)
+        for k, v in (filters or {}).items():
+            q = q.eq(k, v)
+        res = q.order(column, desc=False, nullsfirst=False).limit(1).execute()
+        data = res.data or []
+        return data[0][column] if data else None
+
     def upsert(self, table: str, rows: list[dict], on_conflict: str) -> int:
         if not rows:
             return 0

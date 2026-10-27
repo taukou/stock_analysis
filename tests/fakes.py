@@ -17,6 +17,13 @@ class FakeStore:
         vals = [r[column] for r in rows if r.get(column) is not None]
         return max(vals) if vals else None
 
+    def first_value(self, table, column, filters=None):
+        rows = self.tables.get(table, {}).values()
+        for k, v in (filters or {}).items():
+            rows = [r for r in rows if r.get(k) == v]
+        vals = [r[column] for r in rows if r.get(column) is not None]
+        return min(vals) if vals else None
+
     def upsert(self, table, rows, on_conflict):
         if not rows:
             return 0

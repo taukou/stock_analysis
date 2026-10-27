@@ -33,5 +33,12 @@ insert into industry_links (from_node_id, to_node_id) values ('N101', 'N201');
 
 刪除則用 `delete from industry_links where from_node_id = 'N101' and to_node_id = 'N201';`。重新整理頁面即生效。
 
+## 產業指數
+各產業／階層／節點與大盤的等權指數（只算上市、上櫃）。
+
+1. 先在 Supabase SQL Editor 執行 `db/006_industry_index.sql`。
+2. `run_sync.py` 每日自動更新指數，並從最早的指數日往前補抓交易所行情，直到滿一年（第一次約 20–40 分鐘，可中斷，下次接續）。
+3. 成分股（節點公司）變動後要重算：`.venv\Scripts\python.exe rebuild_index.py`（從一年前以 100 起算，全部算完才一次寫入；失敗則不寫任何列）。
+
 ## 紀錄
 `logs/`（`web.log`、`sync.log`，保留 30 天），不進 git。
