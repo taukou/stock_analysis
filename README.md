@@ -38,7 +38,7 @@ insert into industry_links (from_node_id, to_node_id) values ('N101', 'N201');
 
 1. 先在 Supabase SQL Editor 執行 `db/006_industry_index.sql`。
 2. `run_sync.py` 每日自動更新指數，並從最早的指數日往前補抓交易所行情，直到滿一年（第一次約 20–40 分鐘，可中斷，下次接續）。
-3. 成分股（節點公司）變動後要重算：`.venv\Scripts\python.exe rebuild_index.py`（從一年前以 100 起算，全部算完才一次寫入；失敗則不寫任何列）。
+3. 成分股（節點公司）變動後要重算：`.venv\Scripts\python.exe rebuild_index.py`（從一年前以 100 起算，全部算完才開始寫入；抓取失敗不寫任何列，寫入中斷則重跑一次即可修復）。
    新增節點後也請執行重算：補抓後才新增的範圍，歷史只有資料庫最早報價日起，重算後才會有完整一年。
 
 ## 紀錄

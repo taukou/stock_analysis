@@ -3,7 +3,7 @@ import logging
 import sys
 from datetime import datetime, timedelta
 
-from industry_index import MARKET_KEY, members_hash, scope_members
+from industry_index import MARKET_KEY, members_hash, scope_members, step_backward
 from sync.index_backfill import BACKFILL_DAYS, FetchError, fetch_day
 from sync.index_job import (ON_CONFLICT, SCOPE_CONFLICT, SCOPE_TABLE, TABLE,
                             _by_date, _chain, _ex_by_date)
@@ -16,31 +16,34 @@ log = logging.getLogger("rebuild_index")
 
 
 def _rescale_older(store, first: str, keys: set, rows: list[dict]) -> list[dict]:
-    """重算起點之前的舊列（不刪除）：整段乘上係數，使其在起點日接上新點位 100。
+    """重算起點之前的舊列（不刪除）：由新起點 100 起，依各列自己的 ret_pct 往回推。
 
+    只用不隨點位改變的 ret_pct 推算，所以重跑（含寫入中斷後）結果完全相同。
     起點日的 ret_pct／members 沿用舊列（新鏈沒有前一日收盤可算）。
     """
     older = [r for r in store.index_rows_between("2000-01-01", first)
              if (r["scope_kind"], r["scope_id"]) in keys]
-    at_first = {(r["scope_kind"], r["scope_id"]): r for r in older
-                if r["trade_date"] == first}
-    out = []
-    factors = {}
+    by_key: dict[tuple, list[dict]] = {}
     for r in older:
-        k = (r["scope_kind"], r["scope_id"])
-        if r["trade_date"] >= first:
+        by_key.setdefault((r["scope_kind"], r["scope_id"]), []).append(r)
+    out = []
+    carried = {}
+    for k, lst in by_key.items():
+        lst.sort(key=lambda r: r["trade_date"], reverse=True)
+        if lst[0]["trade_date"] != first:
+            log.warning("範圍 %s 在 %s 沒有舊列，無法接上舊歷史，略過", k, first)
             continue
-        old0 = at_first.get(k)
-        if old0 is None or not old0["level"]:
-            log.warning("範圍 %s 在 %s 沒有舊點位，無法接上舊歷史，略過", k, first)
-            continue
-        f = factors[k] = 100.0 / old0["level"]
-        out.append({**r, "level": round(r["level"] * f, 6)})
+        carried[k] = lst[0]
+        level, ret = 100.0, lst[0]["ret_pct"]
+        for r in lst[1:]:
+            level = step_backward(level, None if ret is None else ret / 100)
+            out.append({**r, "level": round(level, 6)})
+            ret = r["ret_pct"]
     for row in rows:
         k = (row["scope_kind"], row["scope_id"])
-        if k in factors and row["trade_date"] == first:
-            row["ret_pct"] = at_first[k]["ret_pct"]
-            row["members"] = at_first[k]["members"]
+        if k in carried and row["trade_date"] == first:
+            row["ret_pct"] = carried[k]["ret_pct"]
+            row["members"] = carried[k]["members"]
     return out
 
 

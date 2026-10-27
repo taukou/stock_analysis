@@ -212,5 +212,30 @@ def test_rebuild_rescales_older_rows_without_deleting():
     assert rebuild_index.rebuild(s, NOW, f) > 0
     for k in KEYS:
         assert _daily(s)[(*k, D1)]["level"] == 100.0
-        assert _daily(s)[(*k, old)]["level"] == pytest.approx(80.0)   # 40 * 100/50
+        assert _daily(s)[(*k, old)]["level"] == pytest.approx(100 / 1.02, abs=1e-5)   # 依起點 ret_pct 2% 回推
         assert _daily(s)[(*k, D1)]["ret_pct"] == 2.0
+
+
+def test_rebuild_partial_write_then_rerun_equals_clean_run():
+    def setup(store):
+        _seed(store)
+        old = "2026-10-20"
+        for k in KEYS:
+            store.tables["industry_index_daily"][(*k, D1)] = {
+                "scope_kind": k[0], "scope_id": k[1], "trade_date": D1, "level": 50.0,
+                "ret_pct": 2.0, "members": 2}
+            store.tables["industry_index_daily"][(*k, old)] = {
+                "scope_kind": k[0], "scope_id": k[1], "trade_date": old, "level": 40.0,
+                "ret_pct": 1.0, "members": 2}
+    f, _ = _fetchers({D1: ({"1111": 10}, {"2222": 20})})
+    ref = FakeStore()
+    setup(ref)
+    rebuild_index.rebuild(ref, NOW, f)
+    s = _BatchFailStore(fail_on=3)
+    setup(s)
+    assert rebuild_index.rebuild(s, NOW, f) < 0
+    s.fail_on = None
+    assert rebuild_index.rebuild(s, NOW, f) > 0
+    assert _daily(s) == _daily(ref)
+    for k in KEYS:   # 無斷層：舊列 = 起點 100 / (1 + 起點 ret)
+        assert _daily(s)[(*k, "2026-10-20")]["level"] == pytest.approx(100 / 1.02, abs=1e-5)
