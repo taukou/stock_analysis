@@ -343,7 +343,7 @@ def test_daily_page_renders_with_note(client, monkeypatch):
     from industry_trends import MARKET_NOTE
     snap = {"latest_date": "2026-10-22", "flow_date": "2026-10-22",
             "returns": {"2330": {1: 2.0}, "2303": {1: -1.0}},
-            "flows": {"2330": {1: {"foreign": 5000, "trust": None}}},
+            "flows": {"2330": {1: {"foreign": 1000, "trust": None}, 5: {"foreign": 5000, "trust": None}}},
             "signals": {"2330": [{"code": "trust_streak", "label": "投信連買 5 日", "detail": "x"}]}}
     idx = _index({"major:M01": _pts(5), "market:TW": _pts(5)},
                  members={("node", "N1"): frozenset({"2330", "2303"})},
@@ -360,6 +360,9 @@ def test_daily_page_renders_with_note(client, monkeypatch):
     assert res.status_code == 200
     assert MARKET_NOTE in html and "半導體" in html and "晶圓代工" in html and "台積電" in html
     assert "法人資料至 2026-10-22" in html
+    assert "+5 張" in html and "+1 張" not in html and "近 5 日" in html   # 5 日合計（5000 股 = 5 張）
+    from industry_trends import SURVIVOR_NOTE
+    assert SURVIVOR_NOTE in html
 
 
 def test_daily_page_shows_message_when_data_unavailable(client, monkeypatch):
@@ -375,3 +378,5 @@ def test_home_has_ranking_and_rotation_sections(client):
     for label, href in [("產業排行", "#ranking"), ("輪動", "#rotation"), ("今日摘要", "/daily")]:
         assert f'href="{href}"' in html and f">{label}</a>" in html
     assert 'id="ranking"' in html and 'id="rotation"' in html
+    from industry_trends import SURVIVOR_NOTE
+    assert html.count(SURVIVOR_NOTE) == 2   # 排行表下、輪動圖下各一行（含錯誤／空狀態）

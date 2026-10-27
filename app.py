@@ -33,7 +33,7 @@ app = Flask(__name__)
 @app.route('/')
 def home():
     """首頁：渲染大產業選單"""
-    return render_template('home.html', industries=get_all_industries())
+    return render_template('home.html', industries=get_all_industries(), SURVIVOR_NOTE=SURVIVOR_NOTE)
 
 @app.route('/industry/<major_id>')
 def industry_view(major_id):
@@ -71,7 +71,7 @@ def build_daily_digest():
         name = node_names.get(nid, nid)
         nodes.append({"node_id": nid, "name": name, "major_id": mid, "major_name": major_name.get(mid, mid),
                       "change": round(sum(vals) / len(vals), 2) if vals else None})
-        ft = flow_totals(flows, members, 1)
+        ft = flow_totals(flows, members, 5)
         node_flows.append({"node_id": nid, "name": name, "major_id": mid, "major_name": major_name.get(mid, mid),
                            "foreign_lots": ft["foreign_lots"], "trust_lots": ft["trust_lots"]})
     # 只列產業鏈公司（mapping 內）的訊號；每檔股票取第一個對應節點
@@ -103,7 +103,7 @@ def daily_view():
         digest, snap = build_daily_digest()
     except Exception:
         app.logger.exception("每日摘要讀取失敗")
-    return render_template('daily.html', digest=digest, freshness=fresh, MARKET_NOTE=MARKET_NOTE,
+    return render_template('daily.html', digest=digest, freshness=fresh, MARKET_NOTE=MARKET_NOTE, SURVIVOR_NOTE=SURVIVOR_NOTE,
                            flow_date=snap.get("flow_date"), latest_date=snap.get("latest_date"))
 
 @app.route('/shader-test')

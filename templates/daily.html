@@ -78,6 +78,7 @@
                 </div>
             </div>
             <p class="note" title="{{ MARKET_NOTE }}">產業漲跌為自行計算的產業指數單日變化。{{ MARKET_NOTE }}</p>
+            <p class="note">{{ SURVIVOR_NOTE }}</p>
         </section>
 
         <section class="card glass">
@@ -103,7 +104,7 @@
             <div class="item"><span><a href="/industry/{{ n.major_id }}">{{ n.name }}</a><small>{{ n.major_name }}</small></span>
                 <span>外資 {{ lots(n.foreign_lots) }} · 投信 {{ lots(n.trust_lots) }}</span></div>
             {% else %}<p class="none">無資料</p>{% endfor %}
-            <p class="note">依外資＋投信當日淨買超（張）排序；法人資料至 {{ flow_date or '—' }}。</p>
+            <p class="note">依近 5 日外資＋投信合計淨買超（張）排序；法人資料至 {{ flow_date or '—' }}。</p>
         </section>
 
         <section class="card glass">
