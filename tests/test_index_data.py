@@ -50,3 +50,14 @@ def test_node_series_reads_node_kind(monkeypatch):
     assert index_data.node_series(["N1"], "2026-01-01") == {"node:N1": [("2026-01-01", 100.0)]}
     assert seen == {"kinds": ["node"], "ids": ["N1"]}
     assert index_data.node_series([], "2026-01-01") == {}
+
+
+def test_load_mapping_does_not_touch_index_tables(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("no index table")
+    monkeypatch.setattr(database, "fetch_index_rows", boom)
+    monkeypatch.setattr(database, "fetch_index_scopes", boom)
+    monkeypatch.setattr(database, "fetch_chain_mapping", lambda: MAPPING)
+    r = index_data.load_mapping()
+    assert r["mapping"] == MAPPING
+    assert r["members"][("node", "N1")] == frozenset({"2330", "2303"})

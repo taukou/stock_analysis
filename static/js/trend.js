@@ -149,6 +149,15 @@
     });
   }
 
+  // 容器內容寬度：clientWidth 含 padding，直接拿來當圖寬會撐出水平捲軸
+  function contentWidth(el, getStyle) {
+    const w = el.clientWidth || 0;
+    if (!w || typeof getStyle !== "function") return w;
+    const cs = getStyle(el) || {};
+    const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    return Math.max(0, w - pad);
+  }
+
   const QUAD_LABELS = [["領先", 1, 1], ["轉弱", 1, 0], ["落後", 0, 0], ["轉強", 0, 1]];   // [名稱, 右側?, 上方?]
 
   // 輪動圖（RRG）：points = [{major_id,name,x,y,quadrant,trail:[{date,x,y}]}]；中心 (100,100)，軌跡由舊到新
@@ -160,7 +169,8 @@
       el.textContent = "指數資料不足 60 個交易日，暫無輪動圖";
       return;
     }
-    const w = Math.max(el.clientWidth || 600, 280), h = Math.min(Math.max(w * 0.7, 320), 520);
+    const gcs = typeof getComputedStyle === "function" ? getComputedStyle : undefined;
+    const w = Math.max(contentWidth(el, gcs) || 600, 280), h = Math.min(Math.max(w * 0.7, 320), 520);
     const M = { top: 14, right: 16, bottom: 40, left: 46 };
     const all = points.flatMap(p => [{ x: p.x, y: p.y }].concat(p.trail || []));
     const span = (get) => Math.max(1, ...all.map(a => Math.abs(get(a) - 100))) * 1.15;
@@ -224,6 +234,6 @@
     return out;
   }
 
-  const api = { alertsFor, THRESHOLD_KEY, sortRows, rotationChart, MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart, relativeRanks, formatLots };
+  const api = { alertsFor, contentWidth, THRESHOLD_KEY, sortRows, rotationChart, MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart, relativeRanks, formatLots };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Trend = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -299,6 +299,13 @@ def fetch_chain_mapping() -> list[dict]:
     return out
 
 
+def fetch_node_names() -> dict[str, str]:
+    """所有節點名稱（一次查詢）：{node_id: node_name}。"""
+    rows = fetch_all(lambda: get_client().table("value_chain_nodes")
+                     .select("node_id, node_name").order("node_id"))
+    return {r["node_id"]: r["node_name"] for r in rows}
+
+
 def fetch_index_rows(kinds: list[str], since: str, scope_ids: list[str] | None = None) -> list[dict]:
     """指數日資料；scope_ids 為 None 代表不限範圍。"""
     def read(batch):

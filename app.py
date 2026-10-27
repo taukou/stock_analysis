@@ -5,13 +5,13 @@ from flask import Flask, render_template, jsonify, request
 
 from database import (
     fetch_companies, fetch_ex_rights_since, fetch_flows_since, fetch_industry_links,
-    fetch_industry_nodes, fetch_major_node_companies, fetch_quotes_since,
+    fetch_industry_nodes, fetch_major_node_companies, fetch_node_names, fetch_quotes_since,
     fetch_revenue_since, fetch_sync_runs, get_all_industries, get_company_analysis,
     get_node_companies, search_companies,
 )
 from freshness import freshness
 import index_data
-from index_data import index_cache
+from index_data import index_cache, mapping_cache
 from industry_trends import (
     MARKET_NOTE, RANGES, SURVIVOR_NOTE, daily_digest, flow_totals, key_str, period_change, rebase, rrg, to_lots,
 )
@@ -47,26 +47,40 @@ def industry_view(major_id):
                            major_name=names.get(major_id, major_id))
 
 def build_daily_digest():
-    """組每日摘要所需資料；任何來源讀取失敗由呼叫端處理。"""
+    """組每日摘要所需資料；快照或節點對應讀取失敗由呼叫端處理。
+
+    指數、產業名稱、節點名稱讀不到時只影響各自的區塊（強弱產業顯示提示、名稱改顯示代號）。
+    """
     snap = get_snapshot_or_503()
-    idx = get_index_or_503()
-    industries = get_industries_or_503()
+    m = get_mapping_or_503()
+    try:
+        idx = index_cache.get()
+    except Exception:
+        app.logger.exception("每日摘要：指數讀取失敗，強弱產業改顯示提示")
+        idx = None
+    try:
+        industries = get_all_industries()
+    except Exception:
+        app.logger.exception("每日摘要：產業名稱讀取失敗，改顯示代號")
+        industries = None
+    try:
+        node_names = fetch_node_names()
+    except Exception:
+        app.logger.exception("每日摘要：節點名稱讀取失敗，改顯示代號")
+        node_names = {}
     returns, flows, sigs = snap.get("returns") or {}, snap.get("flows") or {}, snap.get("signals") or {}
-    majors = [{"major_id": m["major_id"], "name": m["major_name"],
-               "r1": period_change(idx["series"].get(key_str("major", m["major_id"]), []), 1)}
-              for m in industries]
-    major_name = {m["major_id"]: m["major_name"] for m in industries}
-    mapping = idx["mapping"]
+    major_name = {i["major_id"]: i["major_name"] for i in industries or []}
+    majors = [] if idx is None or industries is None else [
+        {"major_id": i["major_id"], "name": i["major_name"],
+         "r1": period_change(idx["series"].get(key_str("major", i["major_id"]), []), 1)}
+        for i in industries]
+    mapping = m["mapping"]
     node_major = {}
     for r in mapping:
         node_major.setdefault(r["node_id"], r["major_id"])
-    node_names = {}
-    for mid in dict.fromkeys(node_major.values()):
-        for n in fetch_industry_nodes(mid):
-            node_names[n["node_id"]] = n["node_name"]
     nodes, node_flows = [], []
     for nid, mid in node_major.items():
-        members = idx["members"].get(("node", nid), ())
+        members = m["members"].get(("node", nid), ())
         vals = [v for v in (returns.get(sid, {}).get(1) for sid in members) if v is not None]
         name = node_names.get(nid, nid)
         nodes.append({"node_id": nid, "name": name, "major_id": mid, "major_name": major_name.get(mid, mid),
@@ -87,7 +101,9 @@ def build_daily_digest():
     signal_companies = [{"stock_id": sid, "name": names.get(sid, sid), "node_id": first[sid]["node_id"],
                          "major_id": first[sid]["major_id"], "signals": sigs[sid]}
                         for sid in with_sig]
-    return daily_digest(majors, nodes, node_flows, signal_companies), snap
+    digest = daily_digest(majors, nodes, node_flows, signal_companies)
+    digest["majors_unavailable"] = idx is None or industries is None
+    return digest, snap
 
 
 @app.route('/daily')
@@ -166,6 +182,15 @@ def get_index_or_503():
         return index_cache.get()
     except Exception:
         app.logger.exception("指數讀取失敗")
+        raise ApiError("資料暫時無法讀取", 503)
+
+
+def get_mapping_or_503():
+    """讀節點對應快取（不依賴指數表）；失敗回 503。"""
+    try:
+        return mapping_cache.get()
+    except Exception:
+        app.logger.exception("節點對應讀取失敗")
         raise ApiError("資料暫時無法讀取", 503)
 
 
@@ -336,13 +361,13 @@ def api_rotation():
 def api_node_flows(major_id):
     """產業內各節點的法人買賣超加總（張）；count 為有資料家數。"""
     period = parse_period()
-    idx = get_index_or_503()
+    m = get_mapping_or_503()
     snap = get_snapshot_or_503()
     flows = snap.get("flows") or {}
-    node_ids = list(dict.fromkeys(r["node_id"] for r in idx["mapping"] if r["major_id"] == major_id))
+    node_ids = list(dict.fromkeys(r["node_id"] for r in m["mapping"] if r["major_id"] == major_id))
     nodes = []
     for nid in node_ids:
-        ft = flow_totals(flows, idx["members"].get(("node", nid), ()), period)
+        ft = flow_totals(flows, m["members"].get(("node", nid), ()), period)
         nodes.append({"node_id": nid, "foreign_lots": ft["foreign_lots"],
                       "trust_lots": ft["trust_lots"], "count": ft["count"]})
     return jsonify({"flow_date": snap.get("flow_date"), "nodes": nodes})

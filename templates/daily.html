@@ -65,6 +65,9 @@
 
         <section class="card glass">
             <h2>強弱產業</h2>
+            {% if digest.majors_unavailable %}
+            <p class="none">資料暫時無法讀取</p>
+            {% else %}
             <div class="cols">
                 <div><h3>最強 3</h3>
                     {% for m in digest.strong_majors %}
@@ -77,6 +80,7 @@
                     {% else %}<p class="none">無資料</p>{% endfor %}
                 </div>
             </div>
+            {% endif %}
             <p class="note" title="{{ MARKET_NOTE }}">產業漲跌為自行計算的產業指數單日變化。{{ MARKET_NOTE }}</p>
             <p class="note">{{ SURVIVOR_NOTE }}</p>
         </section>

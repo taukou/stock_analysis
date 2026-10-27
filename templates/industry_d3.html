@@ -84,8 +84,9 @@
         }
         #period-switch button:hover { color: var(--text-1); }
         #period-switch button.active { background: rgba(255, 255, 255, 0.18); color: var(--text-1); }
-        /* 節點副標切換（漲跌｜外資｜投信）：緊貼區間切換左側 */
-        #flow-switch { position: fixed; top: 16px; right: calc(50% + 130px); z-index: 1100; display: flex; gap: 2px; padding: 4px; }
+        /* 節點副標切換（漲跌｜外資｜投信）：放在區間切換下方第二列，任何寬度都不會壓到左上導覽列
+           （只在總覽顯示；聚焦模式隱藏，該位置留給 #btn-up） */
+        #flow-switch { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 1100; display: flex; gap: 2px; padding: 4px; }
         #flow-switch button {
             border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600;
             padding: 7px 14px; border-radius: 999px; cursor: pointer; transition: background 0.2s, color 0.2s;
@@ -93,11 +94,10 @@
         #flow-switch button:hover { color: var(--text-1); }
         #flow-switch button.active { background: rgba(255, 255, 255, 0.18); color: var(--text-1); }
         body.focus-mode #flow-switch { display: none; }
-        body.sidebar-open #flow-switch { right: calc(100vw - (100vw - 384px) / 2 + 130px); }
         .label-tag.tag-lead { fill: #ff6b81; font-weight: 700; }
         .label-tag.tag-lag { fill: #3ddc97; font-weight: 700; }
         /* 側邊欄開啟時，切換與 #btn-up 一起置中於剩餘空間（面板 360 + 邊距 24） */
-        body.sidebar-open #period-switch, body.sidebar-open #btn-up { left: calc((100vw - 384px) / 2); }
+        body.sidebar-open #period-switch, body.sidebar-open #flow-switch, body.sidebar-open #btn-up { left: calc((100vw - 384px) / 2); }
 
         /* 右側分析面板：內縮的浮動玻璃面板（像 iOS 的半頁 sheet，四周露出底下內容） */
         #analysis-sidebar {

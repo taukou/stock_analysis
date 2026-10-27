@@ -67,3 +67,12 @@ test("alerts: threshold, signals, ex today; null change ignored", () => {
   assert.deepStrictEqual(T.alertsFor({ latest_change: 4.99, signals: [], ex_today: null }, 5), []);
   assert.deepStrictEqual(T.alertsFor({ latest_change: 5, signals: [], ex_today: null }, 5), ["大漲 +5.00%"]);
 });
+
+test("contentWidth subtracts horizontal padding so charts never overflow their box", () => {
+  const el = { clientWidth: 900 };
+  const cs = () => ({ paddingLeft: "20px", paddingRight: "18px" });
+  assert.strictEqual(T.contentWidth(el, cs), 862);
+  assert.strictEqual(T.contentWidth({ clientWidth: 0 }, cs), 0);
+  assert.strictEqual(T.contentWidth(el, () => ({})), 900);
+  assert.strictEqual(T.contentWidth(el, undefined), 900);
+});

@@ -261,6 +261,11 @@ def _patch_index(monkeypatch, idx=None, err=None):
     monkeypatch.setattr(app_module, "index_cache", FakeCache(snap=idx, err=err))
 
 
+def _patch_mapping(monkeypatch, mapping=(), members=None, err=None):
+    monkeypatch.setattr(app_module, "mapping_cache",
+                        FakeCache(snap={"mapping": list(mapping), "members": members or {}}, err=err))
+
+
 def test_index_series_rebases_and_reports_first_date(client, monkeypatch):
     pts = _pts(30, 200.0, 2.0)
     _patch_index(monkeypatch, _index({"major:M02": pts}, changed={"major:M02"}))
@@ -331,8 +336,9 @@ def test_node_flows_counts_only_present(client, monkeypatch):
     mapping = [{"major_id": "M02", "node_id": "N1", "stock_id": "2330", "position_type": "Upstream"},
                {"major_id": "M02", "node_id": "N1", "stock_id": "2303", "position_type": "Upstream"},
                {"major_id": "M09", "node_id": "N9", "stock_id": "1101", "position_type": "Upstream"}]
-    _patch_index(monkeypatch, _index(mapping=mapping, members={
-        ("node", "N1"): frozenset({"2330", "2303"}), ("node", "N9"): frozenset({"1101"})}))
+    _patch_index(monkeypatch, err=RuntimeError("no index table"))   # 節點法人不依賴指數表
+    _patch_mapping(monkeypatch, mapping, {
+        ("node", "N1"): frozenset({"2330", "2303"}), ("node", "N9"): frozenset({"1101"})})
     monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(snap={
         "flow_date": "2026-10-22", "flows": {"2330": {5: {"foreign": 4000, "trust": 1000}}}}))
     d = client.get("/api/node_flows/M02?period=5").get_json()
@@ -354,7 +360,8 @@ def test_daily_page_renders_with_note(client, monkeypatch):
     monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(snap))
     _patch_index(monkeypatch, idx)
     monkeypatch.setattr(app_module, "get_all_industries", lambda: [{"major_id": "M01", "major_name": "半導體"}])
-    monkeypatch.setattr(app_module, "fetch_industry_nodes", lambda m: [{"node_id": "N1", "node_name": "晶圓代工"}])
+    _patch_mapping(monkeypatch, idx["mapping"], idx["members"])
+    monkeypatch.setattr(app_module, "fetch_node_names", lambda: {"N1": "晶圓代工"})
     monkeypatch.setattr(app_module, "fetch_companies", lambda ids: [{"stock_id": "2330", "company_name": "台積電"}])
     monkeypatch.setattr(app_module, "fetch_sync_runs", lambda: [])
     res = client.get("/daily")
@@ -367,9 +374,49 @@ def test_daily_page_renders_with_note(client, monkeypatch):
     assert SURVIVOR_NOTE in html
 
 
+def _daily_snap_and_mapping(monkeypatch):
+    snap = {"latest_date": "2026-10-22", "flow_date": "2026-10-22",
+            "returns": {"2330": {1: 2.0}, "2303": {1: -1.0}},
+            "flows": {"2330": {5: {"foreign": 5000, "trust": None}}},
+            "signals": {"2330": [{"code": "trust_streak", "label": "投信連買 5 日", "detail": "x"}]}}
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(snap))
+    mapping = [{"node_id": "N1", "stock_id": "2330", "major_id": "M01", "position_type": "Midstream"},
+               {"node_id": "N1", "stock_id": "2303", "major_id": "M01", "position_type": "Midstream"}]
+    _patch_mapping(monkeypatch, mapping, {("node", "N1"): frozenset({"2330", "2303"})})
+    monkeypatch.setattr(app_module, "get_all_industries", lambda: [{"major_id": "M01", "major_name": "半導體"}])
+    monkeypatch.setattr(app_module, "fetch_companies", lambda ids: [{"stock_id": "2330", "company_name": "台積電"}])
+    monkeypatch.setattr(app_module, "fetch_sync_runs", lambda: [])
+
+
+def test_daily_page_keeps_snapshot_sections_when_index_fails(client, monkeypatch):
+    _daily_snap_and_mapping(monkeypatch)
+    _patch_index(monkeypatch, err=RuntimeError("no table"))
+    monkeypatch.setattr(app_module, "fetch_node_names", lambda: {"N1": "晶圓代工"})
+    res = client.get("/daily")
+    html = res.get_data(as_text=True)
+    assert res.status_code == 200
+    assert "晶圓代工" in html and "+0.50%" in html          # 強弱節點
+    assert "+5 張" in html                                  # 法人買超節點
+    assert "台積電" in html and "投信連買" in html          # 個股訊號
+    assert "強弱產業" in html and "資料暫時無法讀取" in html  # 指數區塊只顯示提示
+
+
+def test_daily_page_survives_node_name_failure(client, monkeypatch):
+    _daily_snap_and_mapping(monkeypatch)
+    _patch_index(monkeypatch, _index({"major:M01": _pts(5), "market:TW": _pts(5)}))
+
+    def boom():
+        raise RuntimeError("down")
+    monkeypatch.setattr(app_module, "fetch_node_names", boom)
+    res = client.get("/daily")
+    html = res.get_data(as_text=True)
+    assert res.status_code == 200 and ">N1</a>" in html and "台積電" in html
+
+
 def test_daily_page_shows_message_when_data_unavailable(client, monkeypatch):
     monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(err=RuntimeError("down")))
     _patch_index(monkeypatch, err=RuntimeError("no table"))
+    _patch_mapping(monkeypatch, err=RuntimeError("down"))
     monkeypatch.setattr(app_module, "fetch_sync_runs", lambda: [])
     res = client.get("/daily")
     assert res.status_code == 200 and "資料暫時無法讀取" in res.get_data(as_text=True)

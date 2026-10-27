@@ -37,6 +37,15 @@ def load_index(today: date | None = None) -> dict:
 index_cache = SnapshotCache(load_index)
 
 
+def load_mapping() -> dict:
+    """節點對應與各範圍成分（不讀指數表）：指數表不存在或讀取失敗時，快照類功能仍可用。"""
+    mapping = database.fetch_chain_mapping()
+    return {"mapping": mapping, "members": scope_members(mapping)}
+
+
+mapping_cache = SnapshotCache(load_mapping)
+
+
 def node_series(node_ids: list[str], since: str) -> dict[str, list[tuple]]:
     """節點指數即時讀取（不快取）。"""
     if not node_ids:
