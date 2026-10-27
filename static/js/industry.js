@@ -569,3 +569,100 @@ svg.call(d3.zoom().on("zoom", (e) => container.attr("transform", e.transform)));
 
 Common.mountFreshness(document.getElementById("freshness"));
 Common.mountSearch(document.getElementById("search-input"), document.getElementById("search-list"));
+
+// ---- 走勢面板（功能 1、4）：產業 vs 大盤、上中下游、勾選節點 ----
+(function () {
+    const panel = document.getElementById("trend-panel"), toggle = document.getElementById("trend-toggle");
+    const TIER_LABEL = { Upstream: "上游", Midstream: "中游", Downstream: "下游" };
+    const st = { range: "3M", mode: "industry", nodes: new Set(), seq: 0, listed: false };
+
+    function setMsg(text, isError) {
+        const m = document.getElementById("trend-msg");
+        m.textContent = text || ""; m.className = isError ? "error" : ""; m.style.display = text ? "block" : "none";
+    }
+
+    function renderNodeList() {
+        const box = document.getElementById("trend-nodes");
+        box.innerHTML = "";
+        const list = allIndustryData.filter(n => n.type === "industry");
+        list.forEach(n => {
+            const lab = document.createElement("label");
+            const cb = document.createElement("input");
+            cb.type = "checkbox"; cb.checked = st.nodes.has(n.id);
+            cb.disabled = !cb.checked && st.nodes.size >= Trend.MAX_NODES;
+            cb.addEventListener("change", () => {
+                if (cb.checked) st.nodes.add(n.id); else st.nodes.delete(n.id);
+                renderNodeList(); load();
+            });
+            const sp = document.createElement("span"); sp.textContent = " " + n.name;
+            lab.append(cb, sp); box.appendChild(lab);
+        });
+        st.listed = list.length > 0;
+    }
+
+    function labelOf(key) {
+        const [kind, a, b] = key.split(":");
+        if (kind === "market") return "大盤（等權）";
+        if (kind === "major") return majorName;
+        if (kind === "tier") return `${majorName}${TIER_LABEL[b] || b}`;
+        const n = allIndustryData.find(x => x.id === a);
+        return n ? n.name : a;
+    }
+
+    function renderNotes(d, keys) {
+        const box = document.getElementById("trend-notes");
+        box.innerHTML = "";
+        const add = (t, cls) => { const e = document.createElement("div"); e.textContent = t; if (cls) e.className = cls; box.appendChild(e); };
+        add(d.notes.market); add(d.notes.survivor);
+        if ((d.changed || []).some(k => keys.includes(k))) add("成分已變動，指數為舊名單", "warn");
+        const note = Trend.firstDateNote(d.first_date, Trend.rangeStart(st.range));
+        if (note) add(note);
+    }
+
+    function load() {
+        const keys = Trend.seriesKeys(majorId, st.mode, [...st.nodes]);
+        const seq = ++st.seq;
+        document.getElementById("trend-chart").innerHTML = "";
+        document.getElementById("trend-notes").innerHTML = "";
+        setMsg("載入中…");
+        fetch(`/api/index_series?keys=${encodeURIComponent(keys.join(","))}&range=${st.range}`).then(res =>
+            res.json().catch(() => ({})).then(d => {
+                if (!res.ok) throw new Error(d.error || "資料暫時無法讀取");
+                return d;
+            })
+        ).then(d => {
+            if (seq !== st.seq) return;
+            const show = Trend.visibleKeys(keys, d.series);
+            if (!show.length) { setMsg("尚無指數資料"); renderNotes(d, keys); return; }
+            setMsg("");
+            Trend.lineChart("#trend-chart", show.map(k => ({
+                key: k, label: labelOf(k), dashed: k.startsWith("market:"),
+                points: d.series[k]
+            })), { marketNote: d.notes.market });
+            renderNotes(d, keys);
+        }).catch(err => {
+            if (seq !== st.seq) return;
+            setMsg(err.message || "資料暫時無法讀取", true);
+        });
+    }
+
+    function setOpen(on) {
+        panel.classList.toggle("open", on);
+        toggle.setAttribute("aria-expanded", String(on));
+        if (on) { renderNodeList(); load(); }
+    }
+    toggle.addEventListener("click", () => setOpen(!panel.classList.contains("open")));
+    function bind(sel, attr, key) {
+        document.querySelectorAll(sel + " button").forEach(b => b.addEventListener("click", () => {
+            st[key] = b.dataset[attr];
+            document.querySelectorAll(sel + " button").forEach(x => x.classList.toggle("active", x === b));
+            load();
+        }));
+    }
+    bind("#trend-ranges", "range", "range"); bind("#trend-modes", "mode", "mode");
+    // 節點資料較晚載入：面板開著時補上清單
+    const timer = setInterval(() => {
+        if (allIndustryData.length) { clearInterval(timer); if (panel.classList.contains("open") && !st.listed) renderNodeList(); }
+    }, 300);
+    if (new URLSearchParams(location.search).get("trend") === "open") setOpen(true);
+})();

@@ -128,6 +128,26 @@
         #sb-star.on { color: var(--ex); }
         /* 側邊欄開啟時，右側導覽鈕移到面板左邊，避免蓋住 ☆／× */
         body.sidebar-open #btn-back, body.sidebar-open #btn-right { right: calc(360px + 36px); }
+
+        /* 走勢面板：右下角開關＋可收合玻璃面板（側邊欄開啟時讓位） */
+        #trend-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 1100; padding: 9px 18px; font: inherit; font-size: 13px; font-weight: 600; color: var(--text-1); cursor: pointer; }
+        #trend-toggle[aria-expanded="true"] { background: rgba(255, 255, 255, 0.18); }
+        #trend-panel { position: fixed; right: 16px; bottom: 64px; z-index: 1100; width: 400px; max-width: calc(100vw - 32px); max-height: calc(100vh - 150px); overflow-y: auto; box-sizing: border-box; padding: 16px 18px; border-radius: var(--radius-l); display: none; font-size: 13px; }
+        #trend-panel.open { display: block; }
+        body.sidebar-open #trend-toggle, body.sidebar-open #trend-panel { display: none; }
+        .trend-row { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+        .trend-row .lbl { color: var(--text-2); font-size: 12px; margin-right: 2px; }
+        .trend-row button { border: 0; background: rgba(255, 255, 255, 0.06); color: var(--text-2); font: inherit; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 999px; cursor: pointer; }
+        .trend-row button:hover { color: var(--text-1); }
+        .trend-row button.active { background: rgba(255, 255, 255, 0.2); color: var(--text-1); }
+        #trend-nodes { max-height: 96px; overflow-y: auto; margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-2); font-size: 12px; }
+        #trend-nodes label { cursor: pointer; white-space: nowrap; }
+        #trend-nodes input:disabled + span { opacity: 0.4; }
+        #trend-msg { color: var(--text-2); padding: 28px 0; text-align: center; }
+        #trend-msg.error { color: #ffd6dc; }
+        .trend-notes { margin-top: 10px; font-size: 11px; line-height: 1.5; color: var(--text-3); }
+        .trend-notes div { margin-top: 2px; }
+        .trend-notes .warn { color: var(--ex); }
     </style>
 </head>
 <body>
@@ -204,14 +224,32 @@
         </div>
     </aside>
 
+    <button id="trend-toggle" class="glass glass-pill refract" type="button" aria-expanded="false" aria-controls="trend-panel">走勢</button>
+    <section id="trend-panel" class="glass refract" aria-label="產業走勢">
+        <div class="trend-row" id="trend-ranges" role="group" aria-label="區間"><span class="lbl">區間</span>
+            <button type="button" data-range="1M">1M</button><button type="button" data-range="3M" class="active">3M</button>
+            <button type="button" data-range="6M">6M</button><button type="button" data-range="1Y">1Y</button>
+        </div>
+        <div class="trend-row" id="trend-modes" role="group" aria-label="模式"><span class="lbl">模式</span>
+            <button type="button" data-mode="industry" class="active">產業 vs 大盤</button><button type="button" data-mode="tiers">上中下游</button>
+        </div>
+        <div style="color: var(--text-2); font-size: 12px; margin-bottom: 4px;">加入節點（最多 5 個）</div>
+        <div id="trend-nodes"></div>
+        <div id="trend-chart"></div>
+        <div id="trend-msg" role="status"></div>
+        <div class="trend-notes" id="trend-notes"></div>
+    </section>
+
     <svg id="canvas"></svg>
 
     <script src="{{ url_for('static', filename='js/format.js') }}"></script>
     <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
     <script src="{{ url_for('static', filename='js/common.js') }}"></script>
     <script src="{{ url_for('static', filename='js/layout.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/trend.js') }}"></script>
     <script>
         const majorId = {{ major_id | tojson }};
+        const majorName = {{ major_name | tojson }};
     </script>
     <script src="{{ url_for('static', filename='js/industry.js') }}"></script>
 </body>

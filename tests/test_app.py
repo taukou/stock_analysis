@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -262,8 +262,12 @@ def _patch_index(monkeypatch, idx=None, err=None):
 def test_index_series_rebases_and_reports_first_date(client, monkeypatch):
     pts = _pts(30, 200.0, 2.0)
     _patch_index(monkeypatch, _index({"major:M02": pts}, changed={"major:M02"}))
-    monkeypatch.setattr(app_module.index_data, "node_series",
-                        lambda ids, since: {"node:N1": _pts(5, 50.0, 5.0)})
+    seen = {}
+
+    def node_series(ids, since):
+        seen["since"] = since
+        return {"node:N1": _pts(5, 50.0, 5.0)}
+    monkeypatch.setattr(app_module.index_data, "node_series", node_series)
     d = client.get("/api/index_series?keys=major:M02,node:N1&range=1M").get_json()
     assert d["series"]["major:M02"][0]["value"] == 100.0
     assert len(d["series"]["major:M02"]) == 22
@@ -271,6 +275,8 @@ def test_index_series_rebases_and_reports_first_date(client, monkeypatch):
     assert d["first_date"]["major:M02"] == pts[0][0]
     assert d["changed"] == ["major:M02"]
     assert set(d["notes"]) == {"market", "survivor"}
+    # 節點序列的 since 固定為 400 天前（與 load_index 同窗），不隨區間變動
+    assert seen["since"] == (date.today() - timedelta(days=400)).isoformat()
 
 
 def test_index_series_empty_table_is_200_with_empty_series(client, monkeypatch):

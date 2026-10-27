@@ -217,7 +217,7 @@ def api_index_series():
     node_ids = [k.split(":", 1)[1] for k in keys if k.startswith("node:")]
     node_pts = {}
     if node_ids:
-        since = (date.today() - timedelta(days=int(n * 7 / 5) + 10)).isoformat()
+        since = (date.today() - timedelta(days=400)).isoformat()   # 與 index_data.load_index 同一個固定視窗
         try:
             node_pts = index_data.node_series(node_ids, since)
         except Exception:
