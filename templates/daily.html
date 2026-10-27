@@ -16,11 +16,16 @@
                 #05070f;
             background-attachment: fixed;
         }
+        /* 頂部導覽：與首頁同一組項目，首頁各區塊以 /#id 連回；今日摘要為目前頁 */
         .top-bar { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
-                   display: flex; align-items: center; gap: 18px; padding: 10px 22px; white-space: nowrap; }
-        .top-bar a { color: var(--text-2); text-decoration: none; }
-        .top-bar a:hover { color: var(--text-1); }
-        .top-bar .cur { color: var(--text-1); font-weight: 600; }
+                   display: flex; align-items: center; gap: 18px; padding: 10px 22px; font-size: 0.95rem; white-space: nowrap; }
+        .top-bar .brand { font-weight: 500; font-size: 0.85rem; letter-spacing: 0.5px; color: var(--text-3); }
+        .top-bar .divider { width: 1px; height: 18px; background: rgba(255, 255, 255, 0.18); flex: none; }
+        .nav-tabs { display: flex; align-items: center; }
+        .nav-tab { padding: 6px 14px; border-radius: 999px; color: var(--text-2); text-decoration: none; transition: color 0.2s; }
+        .nav-tab:hover { color: var(--text-1); }
+        .nav-tab[aria-current] { color: var(--text-1); font-weight: 600;
+            background: rgba(255, 255, 255, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
         main { max-width: 900px; margin: 0 auto; padding: 100px 16px 40px; }
         h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); text-align: center; margin-bottom: 8px; }
         .sub { text-align: center; color: var(--text-2); margin-bottom: 32px; font-size: 0.9rem; }
@@ -36,7 +41,13 @@
         .note { color: var(--text-3); font-size: 0.8rem; line-height: 1.6; margin-top: 10px; }
         .empty { text-align: center; color: var(--text-2); padding: 40px 0; }
         .none { color: var(--text-3); font-size: 0.85rem; }
-        @media (max-width: 600px) { .cols { grid-template-columns: 1fr; } .top-bar { gap: 10px; padding: 8px 14px; } }
+        @media (max-width: 600px) { .cols { grid-template-columns: 1fr; } }
+        @media (max-width: 520px) {
+            .top-bar { gap: 8px; padding: 6px 10px; font-size: 0.8rem; max-width: calc(100vw - 16px); }
+            .top-bar .brand, .top-bar .divider { display: none; }
+            .nav-tab { padding: 6px 9px; }
+            .search-input { width: 84px; min-width: 0; }
+        }
     </style>
 </head>
 <body>
@@ -51,9 +62,18 @@
     {%- endmacro %}
 
     <nav class="top-bar glass glass-pill refract" aria-label="主要導覽">
-        <a href="/">首頁</a>
-        <a href="/daily" class="cur" aria-current="page">今日摘要</a>
+        <span class="brand">股市產業鏈</span>
+        <span class="divider" aria-hidden="true"></span>
+        <div class="nav-tabs">
+            <a class="nav-tab" href="/">首頁</a>
+            <a class="nav-tab" href="/#industries">產業列表</a>
+            <a class="nav-tab" href="/#ranking">產業排行</a>
+            <a class="nav-tab" href="/#rotation">輪動</a>
+            <a class="nav-tab" href="/daily" aria-current="page">今日摘要</a>
+        </div>
+        <input id="search-input" class="search-input" type="search" placeholder="搜尋代號／名稱" aria-label="搜尋公司" autocomplete="off">
     </nav>
+    <div id="search-list" class="search-list glass" role="listbox"></div>
     <div id="freshness" class="glass glass-pill" role="status">{{ freshness }}</div>
 
     <main>
@@ -122,5 +142,7 @@
         </section>
         {% endif %}
     </main>
+    <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+    <script>Common.mountSearch(document.getElementById('search-input'), document.getElementById('search-list'));</script>
 </body>
 </html>

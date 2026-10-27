@@ -319,6 +319,16 @@
         Common.mountFreshness(document.getElementById('freshness'));
         Common.mountSearch(document.getElementById('search-input'), document.getElementById('search-list'));
 
+        // 從其他頁以 /#rotation 等連回時，上方區塊非同步載入會把目標往下推；資料到了再對齊一次（使用者已自行捲動就不動）
+        const settleHash = (function () {
+            let userMoved = false;
+            ['wheel', 'touchstart', 'keydown'].forEach(ev => window.addEventListener(ev, () => { userMoved = true; }, { once: true, passive: true }));
+            return () => {
+                const t = location.hash && document.getElementById(location.hash.slice(1));
+                if (t && !userMoved) t.scrollIntoView({ block: 'start' });
+            };
+        })();
+
         // 導覽分頁（scroll-spy）與首屏往下提示
         const navTabs = Array.from(document.querySelectorAll('#nav-tabs .nav-tab')).map(el =>
             ({ el, target: document.getElementById(el.dataset.target) }));
@@ -398,6 +408,7 @@
                         section.hidden = false;
                         document.querySelector('.nav-tab[data-target="watchlist"]').hidden = false;
                         nav.refresh();
+                        settleHash();
                     }
                 })
                 .catch(err => console.warn('自選股載入失敗', err));
@@ -444,7 +455,7 @@
             }
             fetch('/api/industry_ranking')
                 .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-                .then(d => { data = d; render(); })
+                .then(d => { data = d; render(); settleHash(); })
                 .catch(err => { console.warn('產業排行載入失敗', err); box.innerHTML = '<p class="trend-msg">資料暫時無法讀取</p>'; });
         })();
 
@@ -453,7 +464,7 @@
             const box = document.getElementById('rotation-box');
             fetch('/api/rotation')
                 .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-                .then(d => Trend.rotationChart(box, d.points, d.notes))
+                .then(d => { Trend.rotationChart(box, d.points, d.notes); settleHash(); })
                 .catch(err => { console.warn('輪動圖載入失敗', err); box.innerHTML = '<p class="trend-msg">資料暫時無法讀取</p>'; });
         })();
 
