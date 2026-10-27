@@ -48,7 +48,7 @@ def test_build_sql_contents(chains):
     assert "('M05U01', '2327')" in sql and "('N102', '2330')" in sql
     assert "1111" not in sql                                             # 不在行情中的略過
     assert "('M01'," not in sql and "('N102', 'M01'" not in sql          # 半導體不改大產業與節點
-    assert "delete" not in sql.lower()
+    assert "delete" not in sql.lower() and "on commit drop" not in sql
     assert "from value_chain_nodes with no data" in sql   # 暫存表沿用目標欄位型別
     assert sql.count("begin;") == 1 and sql.rstrip().endswith("commit;")
     assert report[0] == "M01 半導體：12 個節點、1 家公司（新公司 0、新對應 0）"

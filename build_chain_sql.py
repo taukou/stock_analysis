@@ -118,14 +118,16 @@ def build(chains: dict[str, Chain], official: dict[str, tuple[str, str]],
 -- 只新增／更新、不刪除，可重複執行。請整份貼到 Supabase SQL Editor 執行。
 begin;
 
--- 暫存表直接複製目標表的欄位型別（例如 position_type 是 enum），值寫進來時就轉好型別
-create temp table _majors on commit drop as
+-- 暫存表直接複製目標表的欄位型別（例如 position_type 是 enum），值寫進來時就轉好型別。
+-- 不用 on commit drop：SQL Editor 可能逐句自動提交，暫存表會在建立後立刻消失；改成最後手動刪除
+drop table if exists _majors, _nodes, _companies, _pairs;
+create temp table _majors as
   select major_id, major_name, description from major_industries with no data;
-create temp table _nodes on commit drop as
+create temp table _nodes as
   select node_id, major_id, node_name, position_type, display_order from value_chain_nodes with no data;
-create temp table _companies on commit drop as
+create temp table _companies as
   select stock_id, company_name, market_type, has_cb from companies with no data;
-create temp table _pairs on commit drop as
+create temp table _pairs as
   select node_id, stock_id from company_node_mapping with no data;
 
 -- 1. 大產業（沿用 M02–M06 佔位代號並改名）
@@ -170,6 +172,8 @@ where not exists (select 1 from company_node_mapping m
 
 -- 5. 新公司的最新股價（歷史行情原本就已整個市場同步）
 select refresh_company_latest();
+
+drop table if exists _majors, _nodes, _companies, _pairs;
 
 commit;
 """
