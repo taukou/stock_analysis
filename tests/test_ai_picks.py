@@ -41,7 +41,7 @@ def _ok(obj, thought=None):
 
 def test_validate_keeps_only_listed_ids_and_fills_names():
     raw = {"overview": " 資金  流向 半導體 ", "picks": [
-        {"kind": "stock", "id": "2330", "reason": "外資買超", "evidence": ["外資 5 日 +4,200 張", "", "a", "b"]},
+        {"kind": "stock", "id": "2330", "reason": "外資買超", "risk": " RSI 過熱 ", "evidence": ["外資 5 日 +4,200 張", "", "a", "b"]},
         {"kind": "stock", "id": "2330", "reason": "重複", "evidence": []},
         {"kind": "stock", "id": "9999", "reason": "名單外", "evidence": []},
         {"kind": "industry", "id": "M01", "reason": "落後", "evidence": ["輪動：落後"]},
@@ -52,6 +52,7 @@ def test_validate_keeps_only_listed_ids_and_fills_names():
     assert out["overview"] == "資金 流向 半導體"
     assert [(p["kind"], p["id"], p["name"]) for p in out["picks"]] == [("stock", "2330", "台積電"), ("industry", "M01", "半導體")]
     assert out["picks"][0]["evidence"] == ["外資 5 日 +4,200 張", "a", "b"]
+    assert out["picks"][0]["risk"] == "RSI 過熱" and out["picks"][1]["risk"] == ""
     assert out["picks"][0]["node_id"] == "N1" and out["picks"][1]["node_id"] is None
 
 
@@ -64,9 +65,29 @@ def test_validate_caps_picks():
 
 def test_prompt_lists_ids_numbers_and_signals():
     text = ai_picks.build_prompt(_ctx())
-    assert "M01｜半導體｜-0.57%｜-4.05%｜-4.81%｜-122,599張｜+34,749張｜落後" in text
-    assert "2330｜台積電｜半導體｜+1.00%｜+2.00%｜—｜+4,200張｜—｜投信連買 5 日" in text
+    assert "M01｜半導體｜-0.57%｜-4.05%｜-4.81%｜—｜—｜—｜—｜-122,599張｜+34,749張｜落後" in text
+    assert "2330 台積電｜半導體｜+1.00%/+2.00%/—｜外資+4,200張 投信—｜—｜—｜—｜投信連買 5 日" in text
     assert "光碟機（電腦及週邊設備）+2.23%" in text
+
+
+def test_prompt_includes_all_factor_groups():
+    import ai_factors as F
+    ctx = _ctx()
+    ctx["industries"][0].update({"r60": 5.0, "r1y": 30.0, "vs_ma20": 1.2, "vs_ma60": -0.5, "rotation": "落後→轉強"})
+    ctx["stocks"][0].update({
+        "node": "晶圓代工", "tier": "中游",
+        "tech": {**dict.fromkeys(("ma20_gap", "above_ma60", "ma_cross", "ma_long_cross", "k", "d", "kd_cross",
+                                  "macd_turn", "rsi", "breakout20", "vol_ratio")),
+                 "ma20_gap": 3.2, "ma_cross": ("golden", 1), "rsi": 71},
+        "flow": {"foreign_days10": 7, "trust_days10": 2, "dealer5": -50, "foreign20": 9000, "trust20": 10},
+        "revenue": {"month": "115/09", "yoy": 25.0, "mom": -3.0, "acc_yoy": 18.0, "yoy_streak": 4, "accel": 6.0}})
+    text = ai_picks.build_prompt(ctx)
+    assert "+5.00%｜+30.00%｜+1.2%｜-0.5%" in text and "落後→轉強" in text
+    assert "半導體／晶圓代工（中游）" in text
+    assert "MA5/20黃金交叉（1日前）" in text and "RSI 71" in text
+    assert "外資10日買7天" in text and "自營5日-50張" in text
+    assert "115/09 年增+25.0% 月增-3.0% 累計年增+18.0% 年增連4月為正" in text
+    assert "risk" in str(ai_picks.RESPONSE_SCHEMA["properties"]["picks"]["items"]["required"])
 
 
 def test_call_gemini_falls_back_on_404_and_skips_thought_parts():
@@ -94,6 +115,20 @@ def test_call_gemini_retries_busy_model_then_falls_back():
     assert model == ai_picks.DEFAULT_MODELS[0]
     with pytest.raises(ai_picks.AiPicksError, match="忙碌"):
         ai_picks.call_gemini("p", "k", post=lambda url, **kw: Res(503, {}), sleep=lambda s: None)
+
+
+def test_call_gemini_treats_timeouts_as_busy():
+    import requests
+    seq = [requests.Timeout("x"), requests.ConnectionError("y"), requests.Timeout("z"),
+           _ok({"overview": "o", "picks": []})]
+
+    def post(url, **kw):
+        r = seq.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+    _, model = ai_picks.call_gemini("p", "k", post=post, sleep=lambda s: None)
+    assert model == ai_picks.DEFAULT_MODELS[1]
 
 
 def test_call_gemini_uses_env_model(monkeypatch):

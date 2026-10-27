@@ -437,7 +437,7 @@ def test_daily_ai_card_shows_picks_even_when_data_unavailable(client, monkeypatc
     ctx = {"date": "2026-10-21"}
     ai_picks.save({"overview": "資金轉向半導體<b>", "picks": [
         {"kind": "industry", "id": "M01", "name": "半導體", "major_id": "M01", "node_id": None,
-         "reason": "外資回補", "evidence": ["外資 5 日 +4 萬張"]},
+         "reason": "外資回補", "risk": "RSI 已達 78", "evidence": ["外資 5 日 +4 萬張"]},
         {"kind": "stock", "id": "2330", "name": "台積電", "major_id": "M01", "node_id": "N1",
          "reason": "投信連買", "evidence": []}]}, ctx, "gemini-x", datetime(2026, 10, 21, 16, 40))
     _daily_snap_and_mapping(monkeypatch)
@@ -448,6 +448,7 @@ def test_daily_ai_card_shows_picks_even_when_data_unavailable(client, monkeypatc
     assert 'href="/industry/M01?trend=open">半導體' in html
     assert 'href="/industry/M01?node=N1&company=2330">台積電' in html
     assert "外資 5 日 +4 萬張" in html and ai_picks.DISCLAIMER in html
+    assert "<span>風險</span>RSI 已達 78" in html and html.count("<span>風險</span>") == 1   # 舊檔沒有 risk 也能顯示
     assert "今日推薦尚未產生，以下為 2026-10-21 的推薦" in html    # 股價已到 10-22
     # 其他資料讀不到時 AI 卡片照常顯示
     monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(err=RuntimeError("down")))

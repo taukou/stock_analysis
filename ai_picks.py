@@ -1,4 +1,4 @@
-"""AI 推薦：把今日的產業排行、輪動、強弱節點、法人流向與個股訊號交給 Gemini，
+"""AI 推薦：把今日的產業排行與中長期走勢、輪動、強弱節點、法人流向、個股技術面／籌碼／月營收與訊號交給 Gemini，
 挑出 3–5 個值得注意的產業或個股，結果存成本機 JSON（reports/ai_picks/<資料日>.json）。
 
 - 金鑰只從環境變數 GEMINI_API_KEY（.env）讀取，不寫進任何檔案或紀錄。
@@ -14,6 +14,7 @@ from pathlib import Path
 
 import requests
 
+import ai_factors as F
 from sync.jobs import JobResult
 
 log = logging.getLogger("ai_picks")
@@ -24,18 +25,25 @@ DATASET = "ai_picks"
 DEFAULT_MODELS = ("gemini-flash-latest", "gemini-2.5-flash")
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 MAX_PICKS = 5
-MAX_SIGNAL_STOCKS = 120
 FLOW_TOP = 15
 DISCLAIMER = "AI 產生，僅供參考，非投資建議"
 
 SYSTEM_PROMPT = """你是台股產業鏈的分析助理，使用繁體中文。
 根據使用者提供的今日資料，寫一段 2–4 句的盤勢說明（資金往哪裡跑、哪些產業轉強或轉弱），
 再挑 3–5 個「值得注意」的產業或個股，產業與個股都要有。
+判斷時要綜合四個面向，不要只看單一數字：
+- 趨勢與技術面：短中長期漲跌、均線位置與交叉、KD、MACD、RSI、是否創 20 日新高或新低、量能。
+- 籌碼面：外資、投信、自營商的買賣超金額與連續性（10 日內買超幾天）。
+- 基本面：月營收年增、月增、累計年增、年增連續月數、成長是否加速。
+- 產業面：所屬產業的指數走勢、輪動象限與移動方向、在產業鏈的上中下游位置。
+優先挑多個面向互相印證的對象；只有單一亮點、或各面向互相矛盾的，要在風險中說明。
 規則：
 1. 只能從資料裡的「產業」與「候選個股」名單挑，id 必須照抄名單上的代號。
-2. 每個理由 1–2 句，必須引用資料中的數字（例如 5 日漲跌、外資或投信 5 日買賣超張數、輪動象限、訊號）。
-3. evidence 放 1–3 個簡短標籤（每個 12 字以內），例如「外資 5 日 +4.2 萬張」「輪動：轉強」。
-4. 不要給買賣建議、目標價或保證，用「值得注意」「可留意」這類中性說法。"""
+2. reason 1–2 句，必須引用資料中的數字，並涵蓋至少兩個面向。
+3. risk 1 句，寫出這個對象「不利」的地方並引用數字（例如 RSI 過熱、離均線太遠、外資在賣、營收衰退、產業轉弱）；真的找不到就寫最主要的不確定性。
+4. evidence 放 1–3 個簡短標籤（每個 12 字以內），例如「外資 5 日 +4.2 萬張」「MA5/20 黃金交叉」。
+5. 不要給買賣建議、目標價或保證，用「值得注意」「可留意」這類中性說法。
+6. 股價只有約 3 個月，60 日均線與 MACD 參考就好；營收是月資料，沒有獲利或本益比資料，不要自行推測。"""
 
 RESPONSE_SCHEMA = {
     "type": "OBJECT",
@@ -47,13 +55,18 @@ RESPONSE_SCHEMA = {
                 "kind": {"type": "STRING", "enum": ["industry", "stock"]},
                 "id": {"type": "STRING"},
                 "reason": {"type": "STRING"},
+                "risk": {"type": "STRING"},
                 "evidence": {"type": "ARRAY", "items": {"type": "STRING"}},
             },
-            "required": ["kind", "id", "reason", "evidence"],
+            "required": ["kind", "id", "reason", "risk", "evidence"],
         }},
     },
     "required": ["overview", "picks"],
 }
+
+PRICE_DAYS = 130       # 讀幾天的行情與法人（日曆天，約 3 個月交易日，資料庫目前也只有這麼多）
+REVENUE_MONTHS = 14
+MAX_STOCKS = 150
 
 
 class AiPicksError(RuntimeError):
@@ -66,8 +79,40 @@ def _lots(v):
     return None if v is None else round(v / 1000)
 
 
-def build_context(app_module) -> dict:
-    """用網站本身的計算（每日摘要、產業排行、輪動）整理給 AI 的資料；app_module 為 app.py 模組。"""
+def _group(rows: list[dict]) -> dict[str, list[dict]]:
+    out: dict[str, list[dict]] = {}
+    for r in rows:
+        out.setdefault(r["stock_id"], []).append(r)
+    return out
+
+
+def load_stock_history(ids: list[str], today) -> dict:
+    """讀候選計算需要的原始資料（行情含高低點、法人含自營商、營收含月增與累計年增）。"""
+    import database
+    from datetime import timedelta
+    from sync.parse import months_back
+    since = (today - timedelta(days=PRICE_DAYS)).isoformat()
+    return {
+        "quotes": _group(database._fetch_by_ids("daily_quotes", "stock_id, trade_date, close, high, low, volume",
+                                                ids, "trade_date", since)),
+        "ex": _group(database._fetch_by_ids("ex_rights", "stock_id, ex_date, prev_close, ref_price",
+                                            ids, "ex_date", since)),
+        "flows": _group(database._fetch_by_ids("smart_money_flow",
+                                               "stock_id, trade_date, foreign_net, trust_net, dealer_net",
+                                               ids, "trade_date", since)),
+        "revenue": _group(database._fetch_by_ids("growth_momentum",
+                                                 "stock_id, data_month, yoy_pct, mom_pct, acc_yoy_pct",
+                                                 ids, "data_month", months_back(today, REVENUE_MONTHS))),
+    }
+
+
+TIER_TEXT = {"Upstream": "上游", "Midstream": "中游", "Downstream": "下游"}
+
+
+def build_context(app_module, history_loader=None) -> dict:
+    """整理給 AI 的資料；app_module 為 app.py 模組（沿用網站的每日摘要、產業排行、輪動與指數計算）。"""
+    from datetime import date
+    history_loader = history_loader or load_stock_history
     client = app_module.app.test_client()
     ranking = client.get("/api/industry_ranking")
     rotation = client.get("/api/rotation")
@@ -76,59 +121,70 @@ def build_context(app_module) -> dict:
     with app_module.app.app_context():
         digest, snap = app_module.build_daily_digest()
     rank, rot = ranking.get_json(), rotation.get_json()
-    quadrant = {p["major_id"]: p["quadrant"] for p in rot["points"]}
-    industries = [{**{k: r[k] for k in ("major_id", "name", "r1", "r5", "r20", "foreign5", "trust5")},
-                   "quadrant": quadrant.get(r["major_id"])} for r in rank["rows"]]
+    series = app_module.index_cache.get()["series"]
+    rot_by = {p["major_id"]: p for p in rot["points"]}
+    industries = []
+    for r in rank["rows"]:
+        trend = F.industry_trend(series.get(f"major:{r['major_id']}", []))
+        industries.append({**{k: r[k] for k in ("major_id", "name", "r1", "r5", "r20", "foreign5", "trust5")},
+                           **trend, "quadrant": (rot_by.get(r["major_id"]) or {}).get("quadrant"),
+                           "rotation": F.rotation_move(rot_by.get(r["major_id"]))})
     major_name = {r["major_id"]: r["name"] for r in industries}
+    market = {**rank["market"], **F.industry_trend(series.get("market:TW", []))}
 
-    returns, flows = snap.get("returns") or {}, snap.get("flows") or {}
-    stocks: dict[str, dict] = {}
-    for g in digest["signal_groups"]:
-        for c in g["companies"]:
-            s = stocks.setdefault(c["stock_id"], {"stock_id": c["stock_id"], "name": c["name"],
-                                                  "major_id": c["major_id"], "node_id": c["node_id"],
-                                                  "signals": []})
-            s["signals"].append(c["label"])
     mapping = app_module.mapping_cache.get()["mapping"]
     first = {}
     for r in mapping:
         first.setdefault(r["stock_id"], r)
+    try:
+        node_names = app_module.fetch_node_names()
+    except Exception:
+        log.exception("節點名稱讀取失敗，改用代號")
+        node_names = {}
+    sigs = snap.get("signals") or {}
+    returns, flows5 = snap.get("returns") or {}, snap.get("flows") or {}
+    today = date.fromisoformat(snap["latest_date"]) if snap.get("latest_date") else date.today()
+    hist = history_loader(sorted(first), today)
 
-    def flow5(sid, who):
-        return _lots(((flows.get(sid) or {}).get(5) or {}).get(who))
-
-    def enrich(s):
-        r = returns.get(s["stock_id"]) or {}
-        return {**s, "industry": major_name.get(s["major_id"], s["major_id"]),
-                "r1": r.get(1), "r5": r.get(5), "r20": r.get(20),
-                "foreign5": flow5(s["stock_id"], "foreign"), "trust5": flow5(s["stock_id"], "trust")}
-
-    signal_stocks = sorted((enrich(s) for s in stocks.values()),
-                           key=lambda s: (-len(s["signals"]),
-                                          -((s["foreign5"] or 0) + (s["trust5"] or 0))))[:MAX_SIGNAL_STOCKS]
-    chosen = {s["stock_id"]: s for s in signal_stocks}
-    # 法人 5 日買超最多的公司（即使沒有訊號）也列入候選
-    for who in ("foreign", "trust"):
-        tops = sorted((sid for sid in first if flow5(sid, who)), key=lambda sid: -flow5(sid, who))[:FLOW_TOP]
-        missing = [sid for sid in tops if sid not in chosen]
-        names = {}
-        if missing:
-            try:
-                names = {c["stock_id"]: c["company_name"] for c in app_module.fetch_companies(missing)}
-            except Exception:
-                log.exception("候選公司名稱讀取失敗，改用代號")
-        for sid in missing:
-            r = first[sid]
-            chosen[sid] = enrich({"stock_id": sid, "name": names.get(sid, sid), "major_id": r["major_id"],
-                                  "node_id": r["node_id"], "signals": []})
+    rows = []
+    for sid, m in first.items():
+        prices = F.adjusted_prices(hist["quotes"].get(sid, []), hist["ex"].get(sid, []))
+        t = F.technicals(prices)
+        f = F.flow_stats(hist["flows"].get(sid, []))
+        rev = F.revenue_stats(hist["revenue"].get(sid, []))
+        labels = [s.get("label") for s in sigs.get(sid) or []]
+        r = returns.get(sid) or {}
+        fl = (flows5.get(sid) or {}).get(5) or {}
+        rows.append({"stock_id": sid, "major_id": m["major_id"], "node_id": m["node_id"],
+                     "industry": major_name.get(m["major_id"], m["major_id"]),
+                     "node": node_names.get(m["node_id"], m["node_id"]),
+                     "tier": TIER_TEXT.get(m.get("position_type"), ""),
+                     "r1": r.get(1), "r5": r.get(5), "r20": r.get(20),
+                     "foreign5": _lots(fl.get("foreign")), "trust5": _lots(fl.get("trust")),
+                     "signals": labels, "tech": t, "flow": f, "revenue": rev,
+                     "score": F.score(t, f, rev, len(labels))})
+    # 候選：分數高者優先（訊號、技術事件、法人連續買、營收成長），同分看法人 5 日合計
+    rows.sort(key=lambda s: (-s["score"], -((s["foreign5"] or 0) + (s["trust5"] or 0))))
+    chosen = [s for s in rows if s["score"] > 0][:MAX_STOCKS]
+    picked = {s["stock_id"] for s in chosen}
+    # 法人 5 日買超最多的公司一定列入（即使分數低）
+    for key in ("foreign5", "trust5"):
+        for s in sorted(rows, key=lambda s: -(s[key] or 0))[:FLOW_TOP]:
+            if (s[key] or 0) > 0 and s["stock_id"] not in picked:
+                chosen.append(s)
+                picked.add(s["stock_id"])
+    names = {}
+    try:
+        names = {c["stock_id"]: c["company_name"] for c in app_module.fetch_companies(sorted(picked))}
+    except Exception:
+        log.exception("候選公司名稱讀取失敗，改用代號")
+    for s in chosen:
+        s["name"] = names.get(s["stock_id"], s["stock_id"])
     return {
-        "date": snap.get("latest_date"),
-        "flow_date": snap.get("flow_date"),
-        "market": rank["market"],
-        "industries": industries,
+        "date": snap.get("latest_date"), "flow_date": snap.get("flow_date"),
+        "market": market, "industries": industries,
         "strong_nodes": digest["strong_nodes"], "weak_nodes": digest["weak_nodes"],
-        "flow_nodes": digest["flow_nodes"],
-        "stocks": list(chosen.values()),
+        "flow_nodes": digest["flow_nodes"], "stocks": chosen,
     }
 
 
@@ -140,27 +196,49 @@ def _lot(v):
     return "—" if v is None else f"{v:+,}張"
 
 
+def _gap(v):
+    return "—" if v is None else f"{v:+.1f}%"
+
+
 def build_prompt(ctx: dict) -> str:
     m = ctx["market"]
     lines = [f"資料日期：{ctx['date']}（法人資料至 {ctx['flow_date']}）",
-             f"大盤（自行計算的等權指數）：今日 {_pct(m.get('r1'))}、5 日 {_pct(m.get('r5'))}、20 日 {_pct(m.get('r20'))}",
-             "", "## 產業（id｜名稱｜今日｜5日｜20日｜外資5日｜投信5日｜輪動象限）"]
+             f"大盤（自行計算的等權指數）：今日 {_pct(m.get('r1'))}、5 日 {_pct(m.get('r5'))}、20 日 {_pct(m.get('r20'))}、"
+             f"60 日 {_pct(m.get('r60'))}、一年 {_pct(m.get('r1y'))}；離 20 日均 {_gap(m.get('vs_ma20'))}、離 60 日均 {_gap(m.get('vs_ma60'))}",
+             "", "## 產業（id｜名稱｜今日｜5日｜20日｜60日｜一年｜離20日均｜離60日均｜外資5日｜投信5日｜輪動（8 週前→現在））"]
     for r in ctx["industries"]:
         lines.append(f"{r['major_id']}｜{r['name']}｜{_pct(r['r1'])}｜{_pct(r['r5'])}｜{_pct(r['r20'])}｜"
-                     f"{_lot(r['foreign5'])}｜{_lot(r['trust5'])}｜{r['quadrant'] or '—'}")
+                     f"{_pct(r.get('r60'))}｜{_pct(r.get('r1y'))}｜{_gap(r.get('vs_ma20'))}｜{_gap(r.get('vs_ma60'))}｜"
+                     f"{_lot(r['foreign5'])}｜{_lot(r['trust5'])}｜{r.get('rotation') or r.get('quadrant') or '—'}")
     lines += ["", "## 今日最強節點"] + [f"{n['name']}（{n['major_name']}）{_pct(n['change'])}" for n in ctx["strong_nodes"]]
     lines += ["", "## 今日最弱節點"] + [f"{n['name']}（{n['major_name']}）{_pct(n['change'])}" for n in ctx["weak_nodes"]]
     lines += ["", "## 法人 5 日買超最多的節點"] + [
         f"{n['name']}（{n['major_name']}）外資 {_lot(n['foreign_lots'])}、投信 {_lot(n['trust_lots'])}"
         for n in ctx["flow_nodes"]]
-    lines += ["", "## 候選個股（id｜名稱｜產業｜今日｜5日｜20日｜外資5日｜投信5日｜訊號）"]
+    lines += ["", "## 候選個股",
+              "格式：id 名稱｜產業／節點（上中下游）｜漲跌 今日/5日/20日｜法人 5 日｜技術面｜籌碼連續性｜月營收｜訊號"]
     for s in ctx["stocks"]:
-        lines.append(f"{s['stock_id']}｜{s['name']}｜{s['industry']}｜{_pct(s['r1'])}｜{_pct(s['r5'])}｜"
-                     f"{_pct(s['r20'])}｜{_lot(s['foreign5'])}｜{_lot(s['trust5'])}｜{'、'.join(s['signals']) or '—'}")
+        lines.append(
+            f"{s['stock_id']} {s['name']}｜{s['industry']}{'／' + s['node'] if s.get('node') else ''}"
+            f"{'（' + s['tier'] + '）' if s.get('tier') else ''}｜"
+            f"{_pct(s['r1'])}/{_pct(s['r5'])}/{_pct(s['r20'])}｜外資{_lot(s['foreign5'])} 投信{_lot(s['trust5'])}｜"
+            f"{F.technicals_text(s['tech']) if s.get('tech') else '—'}｜{F.flow_text(s['flow']) if s.get('flow') else '—'}｜"
+            f"{F.revenue_text(s.get('revenue'))}｜{'、'.join(s['signals']) or '—'}")
     return "\n".join(lines)
 
 
 # ---------- 呼叫 Gemini ----------
+
+class _Busy:
+    """逾時／連線錯誤的替身回應，走和 503 相同的重試與換模型流程。"""
+    status_code = 503
+
+    def __init__(self, reason):
+        self.reason = reason
+
+    def json(self):
+        return {"error": {"message": self.reason}}
+
 
 RETRY_STATUS = (500, 503)          # 模型忙碌等暫時性錯誤：等一下重試，仍失敗就換下一個模型
 RETRY_WAITS = (5, 15)
@@ -182,8 +260,12 @@ def call_gemini(prompt: str, api_key: str, models=None, post=requests.post,
     last = None
     for model in models:
         for wait in (*RETRY_WAITS, None):
-            res = post(API_URL.format(model=model), json=body, timeout=120,
-                       headers={"x-goog-api-key": api_key, "Content-Type": "application/json"})
+            try:
+                res = post(API_URL.format(model=model), json=body, timeout=180,
+                           headers={"x-goog-api-key": api_key, "Content-Type": "application/json"})
+            except (requests.Timeout, requests.ConnectionError) as e:
+                # 逾時或連線中斷視同忙碌（只記錯誤種類，訊息可能含網址）
+                res = _Busy(type(e).__name__)
             if res.status_code not in RETRY_STATUS or wait is None:
                 break
             log.warning("Gemini %s 忙碌（%s），%s 秒後重試", model, res.status_code, wait)
@@ -234,7 +316,8 @@ def validate(result: dict, ctx: dict) -> dict:
         if (kind, pid) in seen:
             continue
         evidence = [_short(e, 20) for e in (p.get("evidence") or []) if str(e or "").strip()][:3]
-        base = {"kind": kind, "id": pid, "reason": _short(p.get("reason"), 160), "evidence": evidence}
+        base = {"kind": kind, "id": pid, "reason": _short(p.get("reason"), 200),
+                "risk": _short(p.get("risk"), 140), "evidence": evidence}
         if kind == "industry" and pid in industries:
             picks.append({**base, "name": industries[pid]["name"], "major_id": pid, "node_id": None})
         elif kind == "stock" and pid in stocks:
