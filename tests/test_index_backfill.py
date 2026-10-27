@@ -164,3 +164,53 @@ def test_rebuild_writes_all_or_nothing():
     s.upserts.clear()
     assert rebuild_index.rebuild(s, NOW, f) < 0
     assert s.upserts == []
+
+
+class _BatchFailStore(FakeStore):
+    """模擬 Store.upsert 分批（每批 2 列），第 fail_on 批丟例外。"""
+    def __init__(self, fail_on=None):
+        super().__init__()
+        self.fail_on, self.batches = fail_on, 0
+
+    def upsert(self, table, rows, on_conflict):
+        for i in range(0, len(rows), 2):
+            self.batches += 1
+            if self.batches == self.fail_on:
+                raise RuntimeError("批次寫入失敗")
+            super().upsert(table, rows[i:i + 2], on_conflict)
+        return len(rows)
+
+
+def test_partial_batch_failure_repaired_on_resume():
+    ref = FakeStore()
+    _seed(ref)
+    f, _ = _fetchers(DATA)
+    backfill_index(ref, NOW, f)
+    s = _BatchFailStore(fail_on=2)
+    _seed(s)
+    r = backfill_index(s, NOW, f)
+    assert r.status == "failed"
+    # 大盤最早日沒有超前：仍是 D3，續跑可補齊
+    assert s.first_value("industry_index_daily", "trade_date", {"scope_kind": "market"}) == D3
+    s.fail_on = None
+    assert backfill_index(s, NOW, f).status == "ok"
+    assert _daily(s) == _daily(ref)
+
+
+def test_rebuild_rescales_older_rows_without_deleting():
+    s = FakeStore()
+    _seed(s)
+    old = "2026-10-20"
+    for k in KEYS:   # 舊刻度：D1 = 50，更早 old = 40
+        s.tables["industry_index_daily"][(*k, D1)] = {
+            "scope_kind": k[0], "scope_id": k[1], "trade_date": D1, "level": 50.0,
+            "ret_pct": 2.0, "members": 2}
+        s.tables["industry_index_daily"][(*k, old)] = {
+            "scope_kind": k[0], "scope_id": k[1], "trade_date": old, "level": 40.0,
+            "ret_pct": None, "members": 0}
+    f, _ = _fetchers({D1: ({"1111": 10}, {"2222": 20})})
+    assert rebuild_index.rebuild(s, NOW, f) > 0
+    for k in KEYS:
+        assert _daily(s)[(*k, D1)]["level"] == 100.0
+        assert _daily(s)[(*k, old)]["level"] == pytest.approx(80.0)   # 40 * 100/50
+        assert _daily(s)[(*k, D1)]["ret_pct"] == 2.0

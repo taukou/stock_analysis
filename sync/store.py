@@ -113,6 +113,12 @@ class Store:
                            .eq("trade_date", trade_date)
                            .order("scope_kind").order("scope_id"))
 
+    def index_rows_between(self, start: str, end: str) -> list[dict]:
+        return self._paged(lambda: self.client.table("industry_index_daily")
+                           .select("scope_kind, scope_id, trade_date, level, ret_pct, members")
+                           .gte("trade_date", start).lte("trade_date", end)
+                           .order("trade_date").order("scope_kind").order("scope_id"))
+
     def index_last_row(self, key: tuple[str, str]) -> dict | None:
         res = (self.client.table("industry_index_daily")
                .select("scope_kind, scope_id, trade_date, level")

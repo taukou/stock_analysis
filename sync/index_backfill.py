@@ -78,7 +78,7 @@ def backfill_index(store, now: datetime,
             m_iso, d_iso = m.isoformat(), d.isoformat()
             ex = _ex_by_date(store.ex_rights_between(m_iso, m_iso)).get(m_iso, {})
             rets = stock_returns(closes_by_stock(d_quotes), closes_by_stock(m_quotes), ex)
-            rows = []
+            rows, market_rows = [], []
             for r in store.index_rows_on(m_iso):
                 key = (r["scope_kind"], r["scope_id"])
                 if key == MARKET_KEY:
@@ -88,8 +88,11 @@ def backfill_index(store, now: datetime,
                 else:
                     continue   # 已不在成分表的範圍不延伸
                 ret, n = average_return(rets, members)
-                rows.append(index_row(key, m_iso, r["level"], ret, n))
-                rows.append(index_row(key, d_iso, step_backward(r["level"], ret), None, 0))
+                pair = [index_row(key, m_iso, r["level"], ret, n),
+                        index_row(key, d_iso, step_backward(r["level"], ret), None, 0)]
+                (market_rows if key == MARKET_KEY else rows).extend(pair)
+            # 大盤放最後：分批寫入中斷時，大盤最早日不會超前其他範圍，續跑即可補齊
+            rows += market_rows
             written += store.upsert(TABLE, rows, ON_CONFLICT)
             m, m_quotes, earliest = d, d_quotes, d_iso
         return JobResult(DATASET, "ok", earliest, written)

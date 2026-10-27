@@ -15,6 +15,35 @@ ROOT = __import__("pathlib").Path(__file__).resolve().parent
 log = logging.getLogger("rebuild_index")
 
 
+def _rescale_older(store, first: str, keys: set, rows: list[dict]) -> list[dict]:
+    """重算起點之前的舊列（不刪除）：整段乘上係數，使其在起點日接上新點位 100。
+
+    起點日的 ret_pct／members 沿用舊列（新鏈沒有前一日收盤可算）。
+    """
+    older = [r for r in store.index_rows_between("2000-01-01", first)
+             if (r["scope_kind"], r["scope_id"]) in keys]
+    at_first = {(r["scope_kind"], r["scope_id"]): r for r in older
+                if r["trade_date"] == first}
+    out = []
+    factors = {}
+    for r in older:
+        k = (r["scope_kind"], r["scope_id"])
+        if r["trade_date"] >= first:
+            continue
+        old0 = at_first.get(k)
+        if old0 is None or not old0["level"]:
+            log.warning("範圍 %s 在 %s 沒有舊點位，無法接上舊歷史，略過", k, first)
+            continue
+        f = factors[k] = 100.0 / old0["level"]
+        out.append({**r, "level": round(r["level"] * f, 6)})
+    for row in rows:
+        k = (row["scope_kind"], row["scope_id"])
+        if k in factors and row["trade_date"] == first:
+            row["ret_pct"] = at_first[k]["ret_pct"]
+            row["members"] = at_first[k]["members"]
+    return out
+
+
 def rebuild(store, now: datetime, fetchers=(twse.fetch_quotes, tpex.fetch_quotes)) -> int:
     """回傳寫入列數；失敗（不寫任何列）回傳 -1。"""
     try:
@@ -35,7 +64,9 @@ def rebuild(store, now: datetime, fetchers=(twse.fetch_quotes, tpex.fetch_quotes
             return -1
         mapping = scope_members(store.chain_mapping())
         ex = _ex_by_date(store.ex_rights_between(start.isoformat(), today.isoformat()))
-        rows = _chain(dates, _by_date(quotes), ex, {MARKET_KEY: None, **mapping})
+        scopes = {MARKET_KEY: None, **mapping}
+        rows = _chain(dates, _by_date(quotes), ex, scopes)
+        rows += _rescale_older(store, dates[0], set(scopes), rows)
         written = store.upsert(TABLE, rows, ON_CONFLICT)
         store.upsert(SCOPE_TABLE, [
             {"scope_kind": k[0], "scope_id": k[1], "members_hash": members_hash(m),

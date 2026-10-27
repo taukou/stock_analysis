@@ -68,6 +68,10 @@ class FakeStore:
         rows = self.tables.get("industry_index_daily", {}).values()
         return [dict(r) for r in rows if r["trade_date"] == trade_date]
 
+    def index_rows_between(self, start, end):
+        rows = self.tables.get("industry_index_daily", {}).values()
+        return [dict(r) for r in rows if start <= r["trade_date"] <= end]
+
     def index_last_row(self, key):
         rows = [r for r in self.tables.get("industry_index_daily", {}).values()
                 if (r["scope_kind"], r["scope_id"]) == tuple(key)]
