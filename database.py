@@ -276,3 +276,48 @@ def fetch_industry_links(major_id) -> list[dict]:
                      .order("link_id"))
     return [{"from": r["from_node_id"], "to": r["to_node_id"]}
             for r in rows if r["to_node_id"] in node_ids]
+
+
+# ---------------------------------------------------------------------------
+# 產業指數讀取（匿名 client，只讀）
+# ---------------------------------------------------------------------------
+
+def fetch_chain_mapping() -> list[dict]:
+    """節點與個股對應，含大產業與階層：[{node_id, stock_id, major_id, position_type}]。"""
+    rows = fetch_all(lambda: get_client().table("company_node_mapping")
+                     .select("node_id, stock_id, value_chain_nodes(major_id, position_type)")
+                     .order("node_id").order("stock_id"))
+    out = []
+    for r in rows:
+        node = r.get("value_chain_nodes")
+        if isinstance(node, list):
+            node = node[0] if node else None
+        if not node:
+            continue
+        out.append({"node_id": r["node_id"], "stock_id": r["stock_id"],
+                    "major_id": node["major_id"], "position_type": node["position_type"]})
+    return out
+
+
+def fetch_index_rows(kinds: list[str], since: str, scope_ids: list[str] | None = None) -> list[dict]:
+    """指數日資料；scope_ids 為 None 代表不限範圍。"""
+    def read(batch):
+        q = (get_client().table("industry_index_daily")
+             .select("scope_kind, scope_id, trade_date, level, ret_pct, members")
+             .in_("scope_kind", kinds).gte("trade_date", since))
+        if batch is not None:
+            q = q.in_("scope_id", batch)
+        return q.order("trade_date").order("scope_kind").order("scope_id")
+
+    if scope_ids is None:
+        return fetch_all(lambda: read(None))
+    rows: list[dict] = []
+    for batch in chunks(list(scope_ids)):
+        rows.extend(fetch_all(lambda b=batch: read(b)))
+    return rows
+
+
+def fetch_index_scopes() -> list[dict]:
+    return fetch_all(lambda: get_client().table("industry_index_scopes")
+                     .select("scope_kind, scope_id, members_hash, member_count, updated_at")
+                     .order("scope_kind").order("scope_id"))

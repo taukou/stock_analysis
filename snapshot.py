@@ -19,6 +19,23 @@ def _group(rows: list[dict]) -> dict[str, list[dict]]:
     return grouped
 
 
+def _flow_sums(flows_by: dict[str, list[dict]], flow_dates: list[str]) -> dict:
+    """各股 1／5／20 個法人交易日的買賣超加總；視窗取法人資料自己的日期（新到舊）。
+    股在視窗內沒有列 → None；有列則加總非 None 值，全為 None → None。"""
+    windows = {n: set(flow_dates[:n]) for n in PERIODS}
+    out: dict = {}
+    for sid, rows in flows_by.items():
+        out[sid] = {}
+        for n in PERIODS:
+            in_win = [r for r in rows if r["trade_date"] in windows[n]]
+            sums = {}
+            for col, key in (("foreign_net", "foreign"), ("trust_net", "trust")):
+                vals = [r[col] for r in in_win if r.get(col) is not None]
+                sums[key] = sum(vals) if vals else None
+            out[sid][n] = sums
+    return out
+
+
 def build_snapshot(quotes: list[dict], ex_rows: list[dict],
                    flows: list[dict], revenue: list[dict]) -> dict:
     dates = trading_dates(quotes)
@@ -41,8 +58,11 @@ def build_snapshot(quotes: list[dict], ex_rows: list[dict],
         trust = {r["trade_date"]: r.get("trust_net") for r in flows_by.get(sid, [])}
         signals[sid] = company_signals(dates, trust, rev_by.get(sid, []), volumes)
 
+    flow_dates = sorted({r["trade_date"] for r in flows}, reverse=True)
     return {"dates": dates, "latest_date": latest,
-            "returns": returns, "ex": ex, "signals": signals}
+            "returns": returns, "ex": ex, "signals": signals,
+            "flows": _flow_sums(flows_by, flow_dates),
+            "flow_date": flow_dates[0] if flow_dates else None}
 
 
 class SnapshotCache:

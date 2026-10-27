@@ -1,4 +1,3 @@
-import math
 import re
 from datetime import date, datetime, timedelta
 
@@ -11,6 +10,7 @@ from database import (
     get_node_companies, search_companies,
 )
 from freshness import freshness
+from industry_trends import to_lots
 from snapshot import snapshot_cache
 from sync.parse import months_back
 
@@ -143,11 +143,6 @@ def api_industry_heat(major_id):
                        "avg_change": round(sum(vals) / len(vals), 2) if vals else None,
                        "count": len(vals)})
     return jsonify(result)
-
-
-def to_lots(shares):
-    """股 → 張（四捨五入）；缺值保留 None。"""
-    return None if shares is None else int(math.floor(shares / 1000 + 0.5))
 
 
 @app.route('/api/company_trends/<stock_id>')

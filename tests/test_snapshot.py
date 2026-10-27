@@ -96,3 +96,18 @@ def test_cold_start_single_flight():
     release.set()
     for th in ths: th.join(5)
     assert results == [{"n": 1}] * 3 and len(calls) == 1
+
+def test_flow_sums_use_flow_dates_and_keep_none():
+    # 股價有 7 天，法人只有較早 5 天（比股價少最近兩天）
+    quotes = [q("2330", f"2026-09-{d:02d}", 100.0) for d in range(10, 17)]
+    fl = lambda sid, d, tr, fo: {"stock_id": sid, "trade_date": d, "trust_net": tr, "foreign_net": fo}
+    flows = [fl("2330", f"2026-09-{d:02d}", 1000, 2000) for d in range(10, 15)]
+    flows.append(fl("2317", "2026-09-14", None, None))
+    flows.append(fl("2454", "2026-09-10", 500, None))
+    s = build_snapshot(quotes, [], flows, [])
+    assert s["flow_date"] == "2026-09-14"
+    assert s["flows"]["2330"][1] == {"foreign": 2000, "trust": 1000}
+    assert s["flows"]["2330"][5] == {"foreign": 10000, "trust": 5000}
+    assert s["flows"]["2317"][5] == {"foreign": None, "trust": None}
+    assert s["flows"]["2454"][1] == {"foreign": None, "trust": None}   # 視窗內無列
+    assert s["flows"]["2454"][5] == {"foreign": None, "trust": 500}
