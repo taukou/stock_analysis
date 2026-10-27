@@ -118,3 +118,23 @@ def test_setup_logging_idempotent_and_writes(tmp_path):
     for h in list(root.handlers):
         h.close()
     root.handlers.clear()
+
+
+def test_index_job_runs_after_daily_jobs():
+    store = FakeStore()
+    order = []
+
+    def idx(s, n):
+        order.append("index")
+        return JobResult("industry_index", "ok", "2026-10-23", 2, "")
+
+    def wrap(j):
+        def w(s, n):
+            order.append(j.__name__)
+            return j(s, n)
+        return w
+
+    jobs = [wrap(j) for j in _five({"quotes": "failed"}, {"quotes": 0})]
+    assert run_sync.run(store, NOW, jobs, post_jobs=[idx]) == 1
+    assert order[-1] == "index" and len(order) == 6
+    assert [r.dataset for r in store.runs][-1] == "industry_index"

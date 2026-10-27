@@ -4,6 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from sync.index_job import sync_index
 from sync.jobs import (JobResult, sync_emerging, sync_ex_rights,
                        sync_institutional, sync_quotes, sync_revenue)
 from sync.logsetup import setup_logging
@@ -17,27 +18,38 @@ def _default_jobs():
     return [sync_quotes, sync_emerging, sync_institutional, sync_ex_rights, sync_revenue]
 
 
-def run(store, now: datetime, jobs=None) -> int:
+def _run_one(store, now: datetime, job) -> tuple[JobResult, bool]:
+    """執行單一工作並記錄；回傳 (結果, 是否有失敗)。"""
+    name = getattr(job, "__name__", "job")
+    failed = False
+    try:
+        result = job(store, now)
+    except Exception as e:
+        log.exception("job %s 例外", name)
+        result = JobResult(name, "failed", None, 0, f"{type(e).__name__}: {e}")
+    log.info("%s status=%s rows=%s last_date=%s message=%s", result.dataset,
+             result.status, result.rows, result.last_date, result.message)
+    if result.status != "ok":
+        failed = True
+    try:
+        store.record_run(result)
+    except Exception:
+        log.exception("record_run 失敗: %s", result.dataset)
+        failed = True
+    return result, failed
+
+
+def run(store, now: datetime, jobs=None, post_jobs=None) -> int:
     failed = False
     wrote: set[str] = set()
+    # 指數更新排在日常工作與後處理之後；明確傳入 jobs（測試）時預設不跑指數
+    if post_jobs is None:
+        post_jobs = [sync_index] if jobs is None else []
     for job in (jobs if jobs is not None else _default_jobs()):
-        name = getattr(job, "__name__", "job")
-        try:
-            result = job(store, now)
-        except Exception as e:
-            log.exception("job %s 例外", name)
-            result = JobResult(name, "failed", None, 0, f"{type(e).__name__}: {e}")
-        log.info("%s status=%s rows=%s last_date=%s message=%s", result.dataset,
-                 result.status, result.rows, result.last_date, result.message)
-        if result.status != "ok":
-            failed = True
+        result, bad = _run_one(store, now, job)
+        failed = failed or bad
         if result.rows > 0:
             wrote.add(result.dataset)
-        try:
-            store.record_run(result)
-        except Exception:
-            log.exception("record_run 失敗: %s", result.dataset)
-            failed = True
 
     steps = []
     if wrote & {"quotes", "emerging", "ex_rights"}:
@@ -50,6 +62,10 @@ def run(store, now: datetime, jobs=None) -> int:
         except Exception:
             log.exception("%s 失敗", label)
             failed = True
+
+    for job in post_jobs:
+        _, bad = _run_one(store, now, job)
+        failed = failed or bad
     return 1 if failed else 0
 
 

@@ -111,3 +111,9 @@ def test_datasets_carry_chinese_labels():
     rows = [run("quotes", "2026-10-26"), run("ex_rights", "2026-10-20")]
     labels = {d["dataset"]: d["label"] for d in freshness(rows, datetime(2026, 10, 26, 16))["datasets"]}
     assert labels == {"quotes": "股價", "ex_rights": "除權息"}
+
+
+def test_industry_index_failed_is_reported():
+    rows = [run("quotes", "2026-10-26"), run("industry_index", None, "failed")]
+    out = freshness(rows, datetime(2026, 10, 26, 16))
+    assert out["level"] == "failed" and "產業指數" in out["message"]

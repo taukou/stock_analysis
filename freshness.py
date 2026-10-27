@@ -8,9 +8,11 @@
 
 from datetime import date, datetime, time, timedelta, timezone
 
-DATASET_ORDER = ("quotes", "emerging", "institutional", "ex_rights", "revenue")
+DATASET_ORDER = ("quotes", "emerging", "institutional", "ex_rights", "revenue",
+                 "industry_index", "index_backfill")
 DATASET_LABELS = {"quotes": "股價", "emerging": "興櫃", "institutional": "法人",
-                  "ex_rights": "除權息", "revenue": "月營收"}
+                  "ex_rights": "除權息", "revenue": "月營收",
+                  "industry_index": "產業指數", "index_backfill": "指數補抓"}
 STALE_CHECKED = ("quotes", "institutional")
 CUTOFF_HOUR = 15
 # 連續休市不會超過這麼多個工作日（春節例外，會短暫誤報，可接受）

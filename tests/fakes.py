@@ -8,6 +8,7 @@ class FakeStore:
         self.runs: list = []
         self.rpc_calls: list[str] = []
         self.tracked: list[dict] = []
+        self.mapping: list[dict] = []
 
     def last_value(self, table, column, filters=None):
         rows = self.tables.get(table, {}).values()
@@ -42,3 +43,23 @@ class FakeStore:
 
     def tracked_companies(self):
         return list(self.tracked)
+
+    def chain_mapping(self):
+        return list(self.mapping)
+
+    def quotes_between(self, start, end, ids=None):
+        rows = self.tables.get("daily_quotes", {}).values()
+        return [dict(r) for r in rows
+                if start <= r["trade_date"] <= end
+                and (ids is None or r["stock_id"] in ids)]
+
+    def ex_rights_between(self, start, end):
+        rows = self.tables.get("ex_rights", {}).values()
+        return [dict(r) for r in rows if start <= r["ex_date"] <= end]
+
+    def index_rows_on(self, trade_date):
+        rows = self.tables.get("industry_index_daily", {}).values()
+        return [dict(r) for r in rows if r["trade_date"] == trade_date]
+
+    def index_scope_keys(self):
+        return {(k[0], k[1]) for k in self.tables.get("industry_index_scopes", {})}
