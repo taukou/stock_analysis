@@ -85,3 +85,12 @@ test("overview: industries without midstream split the width between up- and dow
   const full = L.overviewPlan([...nodes, { id: "m", group: "Midstream" }], 1000, 900);
   assert.deepStrictEqual(full.centers, { Upstream: 150, Downstream: 850, Midstream: 500 });
 });
+
+test("overview: any two tiers sit left and right; a single tier is centred", () => {
+  const um = L.overviewPlan([{ id: "u", group: "Upstream" }, { id: "m", group: "Midstream" }], 1000, 900);
+  assert.deepStrictEqual(um.centers, { Upstream: 240, Midstream: 760 });
+  const md = L.overviewPlan([{ id: "m", group: "Midstream" }, { id: "d", group: "Downstream" }], 1000, 900);
+  assert.deepStrictEqual(md.centers, { Midstream: 240, Downstream: 760 });
+  const d = L.overviewPlan([{ id: "d", group: "Downstream" }], 1000, 900);
+  assert.deepStrictEqual(d.centers, { Downstream: 500 });
+});

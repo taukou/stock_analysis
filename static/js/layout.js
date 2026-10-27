@@ -4,9 +4,9 @@
 
   // ---- 總覽：上中下游三欄，每欄節點依序排列；太擠時分成幾個左右錯開的小欄，讓名稱與平均值不被鄰居蓋住 ----
   // 節點多到一欄放不下（如電腦週邊上游 25 個）時，整張圖等比例縮小（scale）再排
-  // 每一層可用的水平範圍（佔畫面寬）；沒有中游的產業，上下游各分一半
-  const BANDS = { Upstream: [0, 0.3], Midstream: [0.35, 0.65], Downstream: [0.7, 1] };
-  const BANDS_NO_MID = { Upstream: [0, 0.48], Downstream: [0.52, 1] };
+  // 每一層可用的水平範圍（佔畫面寬），依實際有幾層決定：三層分三欄；只有兩層（如只有上中游）左右各一半；一層用全寬
+  const TIERS = ["Upstream", "Midstream", "Downstream"];
+  const BANDS_BY_COUNT = { 1: [[0, 1]], 2: [[0, 0.48], [0.52, 1]], 3: [[0, 0.3], [0.35, 0.65], [0.7, 1]] };
   const HEX_ABOVE = 50, HEX_BELOW = 90;          // 六角形（半徑 45）上緣與下方兩行文字的範圍
   const SUB_DX = 160;                            // 相鄰小欄的水平距離（縮放前）
   const MIN_SCALE = 0.55;
@@ -14,7 +14,7 @@
   function groupByTier(nodes) {
     const groups = new Map();
     nodes.forEach(n => {
-      const key = n.group in BANDS ? n.group : "Midstream";
+      const key = TIERS.includes(n.group) ? n.group : "Midstream";
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(n);
     });
@@ -31,7 +31,9 @@
 
   function overviewPlan(nodes, width, height, top = 100, bottom = 50) {
     const groups = groupByTier(nodes);
-    const bands = groups.has("Midstream") ? BANDS : BANDS_NO_MID;
+    const present = TIERS.filter(t => groups.has(t));
+    const bands = {};
+    present.forEach((t, i) => { bands[t] = BANDS_BY_COUNT[present.length][i]; });
     const centers = {};
     groups.forEach((_, key) => { centers[key] = width * (bands[key][0] + bands[key][1]) / 2; });
     const fits = s => [...groups.entries()].every(([key, list]) => {
