@@ -135,6 +135,7 @@ function fetchJSON(url) {
 track(d3.json(`/api/industry_nodes/${majorId}`), "載入產業節點").then(data => {
     allIndustryData = data; nodes = data.map(d => ({...d})); handleResize(); update();
     loadHeat();
+    if (currentFlow !== "change") loadFlows();
     return openDeepLink();
 }).catch(showRenderError);
 track(fetchJSON(`/api/industry_links/${majorId}`), "載入供應關係").then(ls => {
@@ -143,17 +144,27 @@ track(fetchJSON(`/api/industry_links/${majorId}`), "載入供應關係").then(ls
 
 // ---- 側邊欄趨勢區塊 ----
 let currentPeriod = 1;   // 目前選的區間（交易日數），由 #period-switch 切換
+// 總覽節點副標顯示：change＝平均漲跌；foreign／trust＝該區間法人買賣超張數（/api/node_flows）
+const FLOW_LABELS = { foreign: "外資", trust: "投信" };
+let currentFlow = ["foreign", "trust"].includes(new URLSearchParams(location.search).get("flows"))
+    ? new URLSearchParams(location.search).get("flows") : "change";
+let flowMap = {}, flowDate = null, flowError = false, flowMax = 0;   // node_id -> {foreign_lots,trust_lots,count}
 let heatMap = {};        // node_id -> {avg_change, count}（目前區間）
 let supplyLinks = [];    // [{from, to}] 節點供應關係
 
 // 滑過節點或箭頭：只亮相關的供應線，圖例改寫成文字說明供應方向
-const SUPPLY_LEGEND_DEFAULT = "箭頭方向 ＝ 供應給（上游 → 下游）";
+const SUPPLY_LEGEND_BASE = "箭頭方向 ＝ 供應給（上游 → 下游）";
+function supplyLegendDefault() {
+    if (currentFlow === "change") return SUPPLY_LEGEND_BASE;
+    if (flowError) return `${SUPPLY_LEGEND_BASE}｜法人資料暫時無法讀取`;
+    return flowDate ? `${SUPPLY_LEGEND_BASE}｜法人資料至 ${flowDate}` : SUPPLY_LEGEND_BASE;
+}
 function highlightSupply(nodeId, toId) {
     const legend = document.getElementById("supply-legend");
     const groups = supplyLayer.selectAll("g.supply");
     if (!nodeId || currentFocusedIndustry) {
         groups.classed("hot", false).classed("dim", false);
-        if (legend) legend.textContent = SUPPLY_LEGEND_DEFAULT;
+        if (legend) legend.textContent = supplyLegendDefault();
         return;
     }
     const related = toId ? (l => l.from === nodeId && l.to === toId)
@@ -387,6 +398,16 @@ const EX_SHORT = {"除息": "息", "除權": "權", "除權息": "權息"};
 function paintNode(d, g) {
     if (d.type === "industry") {
         const h = heatMap[d.id];
+        if (currentFlow !== "change") {
+            const f = flowMap[d.id], v = f ? f[currentFlow + "_lots"] : null;
+            // 顏色沿用漲跌色：張數依全產業最大絕對值換算成該區間的色階
+            const scaled = Fmt.isNil(v) || !flowMax ? null : v / flowMax * Fmt.HEAT_SCALE[currentPeriod];
+            g.select("path.industry-node").style("fill", Fmt.heatColor(scaled, currentPeriod));
+            g.select("tspan.label-price").attr("class", `label-price ${Fmt.upDownClass(v, 'text')}`)
+                .text(flowError ? "法人資料暫時無法讀取"
+                    : `${FLOW_LABELS[currentFlow]} ${Trend.formatLots(Fmt.isNil(v) ? null : v)}${f ? `（${f.count} 家）` : ""}`);
+            return;
+        }
         const avg = h ? h.avg_change : null;
         g.select("path.industry-node").style("fill", Fmt.heatColor(avg, currentPeriod));
         g.select("tspan.label-price").attr("class", `label-price ${Fmt.upDownClass(avg, 'text')}`)
@@ -402,9 +423,15 @@ function paintNode(d, g) {
     const label = g.select("text.label").style("display", mode === "none" ? "none" : null)
         .attr("dy", r + (compact ? 12 : 16));
     label.select("tspan.label-name").style("font-size", compact ? "11px" : null);
+    // 完整標籤：第二行「+1.2%（較節點 +0.8）」，第三行領漲／落後小標；精簡標籤不加差距（避免擠）
+    const rk = focusRanks.get(d.id), full = mode === "full";
+    const diffTxt = full && rk && rk.diff != null ? `（較節點 ${Fmt.fmtSigned(rk.diff)}）` : "";
     label.select("tspan.label-price").attr("class", `label-price ${Fmt.upDownClass(c, 'text')}`)
         .attr("dy", compact ? "1.15em" : "1.2em").style("font-size", compact ? "10px" : null)
-        .text(compact ? Fmt.fmtSigned(c, "%") : `${Fmt.fmtNum(d.price)} (${Fmt.fmtSigned(c, "%")})`);
+        .text(compact ? Fmt.fmtSigned(c, "%") : (rk ? `${Fmt.fmtSigned(c, "%")}${diffTxt}` : `${Fmt.fmtNum(d.price)} (${Fmt.fmtSigned(c, "%")})`));
+    const tag = full && rk ? rk.tag : null;
+    label.select("tspan.label-tag").text(tag === "lead" ? "領漲" : (tag === "lag" ? "落後" : ""))
+        .attr("class", `label-tag ${tag === "lead" ? "tag-lead" : "tag-lag"}`);
     g.select("text.ex-tag").attr("x", r * 0.7).attr("y", -r * 0.7)
         .text(d.ex ? (EX_SHORT[d.ex] || d.ex) : "").style("display", d.ex ? null : "none");
     const sigs = d.signals || [];
@@ -412,7 +439,11 @@ function paintNode(d, g) {
         .style("display", sigs.length ? null : "none");
     star.select("title").text(sigs.map(s => s.label).join("、"));
 }
-function repaintAll() { nodeLayer.selectAll(".node-group").each(function (d) { paintNode(d, d3.select(this)); }); }
+let focusRanks = new Map();   // 聚焦時各公司相對節點平均的差距與領漲／落後
+function repaintAll() {
+    focusRanks = currentFocusedIndustry ? Trend.relativeRanks(nodes.filter(n => n.type !== "industry")) : new Map();
+    nodeLayer.selectAll(".node-group").each(function (d) { paintNode(d, d3.select(this)); });
+}
 
 function loadHeat() {
     const period = currentPeriod;
@@ -424,6 +455,40 @@ function loadHeat() {
     }).catch(showRenderError);
 }
 
+// 載入法人流向（外資／投信模式才抓）；503 等失敗不丟錯，只顯示「暫時無法讀取」，漲跌模式不受影響
+function loadFlows() {
+    if (currentFlow === "change") { highlightSupply(null); repaintAll(); return Promise.resolve(); }
+    const period = currentPeriod, flow = currentFlow;
+    return fetch(`/api/node_flows/${majorId}?period=${period}`).then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+    }).then(data => {
+        if (period !== currentPeriod || flow !== currentFlow) return;
+        flowMap = {}; (data.nodes || []).forEach(r => { flowMap[r.node_id] = r; });
+        flowDate = data.flow_date || null; flowError = false;
+    }).catch(() => {
+        if (period !== currentPeriod || flow !== currentFlow) return;
+        flowMap = {}; flowDate = null; flowError = true;
+    }).then(() => {
+        flowMax = Math.max(0, ...Object.values(flowMap).map(r => Math.abs(r[currentFlow + "_lots"] || 0)));
+        highlightSupply(null); repaintAll();
+    });
+}
+function setFlow(f) {
+    if (f === currentFlow) return;
+    currentFlow = f;
+    document.querySelectorAll("#flow-switch button").forEach(b => {
+        const on = b.dataset.flow === f;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", on);
+    });
+    loadFlows();
+}
+document.querySelectorAll("#flow-switch button").forEach(b => {   // 網址 ?flows= 進來時先把按鈕狀態對齊
+    b.classList.toggle("active", b.dataset.flow === currentFlow); b.setAttribute("aria-pressed", b.dataset.flow === currentFlow);
+});
+document.querySelectorAll("#flow-switch button").forEach(b => b.addEventListener("click", () => setFlow(b.dataset.flow)));
+
 function setPeriod(p) {
     if (p === currentPeriod) return;
     currentPeriod = p;
@@ -434,6 +499,7 @@ function setPeriod(p) {
     });
     renderExBadge();
     loadHeat();
+    if (currentFlow !== "change") loadFlows();
     if (currentFocusedIndustry) refreshFocusPeriod();
 }
 
@@ -518,6 +584,7 @@ function update() {
     text.append("tspan").attr("x", 0).attr("class", "label-name")
         .text(d => d.type === "industry" && d.name.length > 12 ? d.name.slice(0, 11) + "…" : d.name);
     text.append("tspan").attr("x", 0).attr("dy", "1.2em").attr("class", "label-price");
+    text.append("tspan").attr("x", 0).attr("dy", "1.15em").attr("class", "label-tag").style("font-size", "10px");
     // 公司球右上角除權息標籤、左上角訊號星點（加在名稱文字之後，tick 的 select("text") 仍取到名稱）
     nodeEnter.filter(d => d.type === "company").each(function () {
         const g = d3.select(this);

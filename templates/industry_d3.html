@@ -84,6 +84,18 @@
         }
         #period-switch button:hover { color: var(--text-1); }
         #period-switch button.active { background: rgba(255, 255, 255, 0.18); color: var(--text-1); }
+        /* 節點副標切換（漲跌｜外資｜投信）：緊貼區間切換左側 */
+        #flow-switch { position: fixed; top: 16px; right: calc(50% + 130px); z-index: 1100; display: flex; gap: 2px; padding: 4px; }
+        #flow-switch button {
+            border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600;
+            padding: 7px 14px; border-radius: 999px; cursor: pointer; transition: background 0.2s, color 0.2s;
+        }
+        #flow-switch button:hover { color: var(--text-1); }
+        #flow-switch button.active { background: rgba(255, 255, 255, 0.18); color: var(--text-1); }
+        body.focus-mode #flow-switch { display: none; }
+        body.sidebar-open #flow-switch { right: calc(100vw - (100vw - 384px) / 2 + 130px); }
+        .label-tag.tag-lead { fill: #ff6b81; font-weight: 700; }
+        .label-tag.tag-lag { fill: #3ddc97; font-weight: 700; }
         /* 側邊欄開啟時，切換與 #btn-up 一起置中於剩餘空間（面板 360 + 邊距 24） */
         body.sidebar-open #period-switch, body.sidebar-open #btn-up { left: calc((100vw - 384px) / 2); }
 
@@ -165,6 +177,12 @@
         <button type="button" data-period="1" class="active" aria-pressed="true">今日</button>
         <button type="button" data-period="5" aria-pressed="false">5 日</button>
         <button type="button" data-period="20" aria-pressed="false">20 日</button>
+    </div>
+
+    <div id="flow-switch" class="glass glass-pill" role="group" aria-label="節點顯示">
+        <button type="button" data-flow="change" class="active" aria-pressed="true">漲跌</button>
+        <button type="button" data-flow="foreign" aria-pressed="false">外資</button>
+        <button type="button" data-flow="trust" aria-pressed="false">投信</button>
     </div>
 
     <button id="btn-back" class="nav-btn glass refract" onclick="exitFocusMode()">返回總覽</button>

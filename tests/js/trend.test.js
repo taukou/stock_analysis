@@ -37,3 +37,18 @@ test("fixed notes equal the python constants and stay out of the cleared node", 
   const html = fs.readFileSync(require("node:path").join(__dirname, "../../templates/industry_d3.html"), "utf8");
   assert.ok(html.includes('id="trend-notes-fixed"'));
 });
+
+test("relative ranks: diff vs node average, lead/lag counts, nulls untouched", () => {
+  const cs = [1, 2, 3, 4, 5, 6, 7].map((v, i) => ({ id: `c${i}`, change: v })).concat([{ id: "n", change: null }]);
+  const r = T.relativeRanks(cs);
+  assert.deepStrictEqual(r.get("c6"), { diff: 3, tag: "lead" });
+  assert.strictEqual(r.get("c0").tag, "lag");
+  assert.strictEqual([...r.values()].filter(v => v.tag === "lead").length, 3);
+  assert.deepStrictEqual(r.get("n"), { diff: null, tag: null });
+  assert.strictEqual(T.relativeRanks([{ id: "a", change: 1 }]).get("a").tag, null);
+});
+test("formatLots", () => {
+  assert.strictEqual(T.formatLots(null), "—");
+  assert.strictEqual(T.formatLots(1234), "+1,234 張");
+  assert.strictEqual(T.formatLots(-5), "-5 張");
+});

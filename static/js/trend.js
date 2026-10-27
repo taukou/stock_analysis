@@ -114,6 +114,29 @@
     });
   }
 
-  const api = { MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart };
+  // 節點內相對強弱：diff = 漲跌 − 節點平均（只算非 null）；前 m 名 lead、後 m 名 lag，m = min(3, floor(k/2))
+  function relativeRanks(companies) {
+    const vals = (companies || []).filter(c => c.change != null);
+    const out = new Map((companies || []).map(c => [c.id, { diff: null, tag: null }]));
+    if (!vals.length) return out;
+    const avg = vals.reduce((a, c) => a + c.change, 0) / vals.length;
+    const m = Math.min(3, Math.floor(vals.length / 2));
+    const sorted = vals.slice().sort((a, b) => b.change - a.change);
+    sorted.forEach((c, i) => {
+      const diff = Math.round((c.change - avg) * 100) / 100 || 0;
+      const tag = i < m ? "lead" : (i >= sorted.length - m ? "lag" : null);
+      out.set(c.id, { diff, tag });
+    });
+    return out;
+  }
+
+  // 張數顯示：null →「—」，其餘帶正負號與千分位
+  function formatLots(v) {
+    if (v == null) return "—";
+    const sign = v > 0 ? "+" : (v < 0 ? "-" : "");
+    return `${sign}${Math.abs(Math.round(v)).toLocaleString("en-US")} 張`;
+  }
+
+  const api = { MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart, relativeRanks, formatLots };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Trend = api;
 })(typeof window !== "undefined" ? window : globalThis);
