@@ -239,3 +239,94 @@ def test_industry_page_survives_name_lookup_failure(client, monkeypatch):
     monkeypatch.setattr(app_module, "get_all_industries", boom)
     res = client.get("/industry/M03")
     assert res.status_code == 200 and "<strong>M03</strong>" in res.get_data(as_text=True)
+
+
+# ===== 趨勢 API =====
+def _pts(n, start=100.0, step=1.0, end_date="2026-10-22"):
+    from datetime import timedelta
+    d0 = date.fromisoformat(end_date)
+    return [((d0 - timedelta(days=n - 1 - i)).isoformat(), start + step * i) for i in range(n)]
+
+
+def _index(series=None, **kw):
+    base = {"series": series or {}, "first_date": {k: v[0][0] for k, v in (series or {}).items()},
+            "changed": set(), "members": {}, "mapping": []}
+    base.update(kw)
+    return base
+
+
+def _patch_index(monkeypatch, idx=None, err=None):
+    monkeypatch.setattr(app_module, "index_cache", FakeCache(snap=idx, err=err))
+
+
+def test_index_series_rebases_and_reports_first_date(client, monkeypatch):
+    pts = _pts(30, 200.0, 2.0)
+    _patch_index(monkeypatch, _index({"major:M02": pts}, changed={"major:M02"}))
+    monkeypatch.setattr(app_module.index_data, "node_series",
+                        lambda ids, since: {"node:N1": _pts(5, 50.0, 5.0)})
+    d = client.get("/api/index_series?keys=major:M02,node:N1&range=1M").get_json()
+    assert d["series"]["major:M02"][0]["value"] == 100.0
+    assert len(d["series"]["major:M02"]) == 22
+    assert d["series"]["node:N1"][0]["value"] == 100.0
+    assert d["first_date"]["major:M02"] == pts[0][0]
+    assert d["changed"] == ["major:M02"]
+    assert set(d["notes"]) == {"market", "survivor"}
+
+
+def test_index_series_empty_table_is_200_with_empty_series(client, monkeypatch):
+    _patch_index(monkeypatch, _index())
+    d = client.get("/api/index_series?keys=major:M02").get_json()
+    assert d["series"] == {"major:M02": []} and d["first_date"] == {"major:M02": None}
+
+
+def test_index_series_rejects_bad_keys_and_range(client):
+    for q in ["keys=foo", "keys=major:M02&range=2Y", "keys=" + ",".join(f"node:N{i}" for i in range(13))]:
+        assert client.get(f"/api/index_series?{q}").status_code == 400
+
+
+def test_index_series_503_when_load_fails(client, monkeypatch):
+    _patch_index(monkeypatch, err=RuntimeError("no table"))
+    res = client.get("/api/index_series?keys=major:M02")
+    assert res.status_code == 503 and res.get_json() == {"error": "資料暫時無法讀取"}
+
+
+def test_ranking_rows_and_market_with_note(client, monkeypatch):
+    monkeypatch.setattr(app_module, "get_all_industries",
+                        lambda: [{"major_id": "M02", "major_name": "半導體"}])
+    _patch_index(monkeypatch, _index({"major:M02": _pts(30, 100, 1), "market:TW": _pts(30, 100, 0.5)},
+                                     members={("major", "M02"): frozenset({"2330", "2303"})}))
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(snap={
+        "flow_date": "2026-10-22",
+        "flows": {"2330": {5: {"foreign": 3000, "trust": None}}, "2303": {5: {"foreign": 2000, "trust": 1000}}}}))
+    d = client.get("/api/industry_ranking").get_json()
+    r = d["rows"][0]
+    assert r["major_id"] == "M02" and r["name"] == "半導體"
+    assert r["r1"] is not None and r["r20"] is not None
+    assert r["foreign5"] == 5 and r["trust5"] == 1 and r["flow_count"] == 2
+    assert d["market"]["r5"] is not None and d["flow_date"] == "2026-10-22"
+    assert "market" in d["notes"]
+
+
+def test_rotation_omits_short_history(client, monkeypatch):
+    monkeypatch.setattr(app_module, "get_all_industries", lambda: [
+        {"major_id": "M02", "major_name": "半導體"}, {"major_id": "M03", "major_name": "短"}])
+    _patch_index(monkeypatch, _index({"major:M02": _pts(120, 100, 0.3), "major:M03": _pts(10),
+                                      "market:TW": _pts(120, 100, 0.2)}))
+    d = client.get("/api/rotation").get_json()
+    assert [p["major_id"] for p in d["points"]] == ["M02"]
+    p = d["points"][0]
+    assert p["quadrant"] in ("領先", "轉弱", "轉強", "落後") and p["trail"]
+    assert d["as_of"] == "2026-10-22"
+
+
+def test_node_flows_counts_only_present(client, monkeypatch):
+    mapping = [{"major_id": "M02", "node_id": "N1", "stock_id": "2330", "position_type": "Upstream"},
+               {"major_id": "M02", "node_id": "N1", "stock_id": "2303", "position_type": "Upstream"},
+               {"major_id": "M09", "node_id": "N9", "stock_id": "1101", "position_type": "Upstream"}]
+    _patch_index(monkeypatch, _index(mapping=mapping, members={
+        ("node", "N1"): frozenset({"2330", "2303"}), ("node", "N9"): frozenset({"1101"})}))
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(snap={
+        "flow_date": "2026-10-22", "flows": {"2330": {5: {"foreign": 4000, "trust": 1000}}}}))
+    d = client.get("/api/node_flows/M02?period=5").get_json()
+    assert d["flow_date"] == "2026-10-22"
+    assert d["nodes"] == [{"node_id": "N1", "foreign_lots": 4, "trust_lots": 1, "count": 1}]

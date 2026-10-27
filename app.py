@@ -10,12 +10,19 @@ from database import (
     get_node_companies, search_companies,
 )
 from freshness import freshness
-from industry_trends import to_lots
+import index_data
+from index_data import index_cache
+from industry_trends import (
+    MARKET_NOTE, RANGES, SURVIVOR_NOTE, flow_totals, key_str, period_change, rebase, rrg, to_lots,
+)
 from snapshot import snapshot_cache
 from sync.parse import months_back
 
 STOCK_ID_RE = re.compile(r"^[0-9A-Z]{4,6}$")
 MAX_COMPANY_IDS = 50
+MAX_INDEX_KEYS = 12
+INDEX_KEY_RE = re.compile(r"^(market|major|tier|node):[0-9A-Za-z_:\-]{1,40}$")
+NOTES = {"market": MARKET_NOTE, "survivor": SURVIVOR_NOTE}
 
 app = Flask(__name__)
 
@@ -90,6 +97,23 @@ def get_snapshot_or_503():
         return snapshot_cache.get()
     except Exception:
         app.logger.exception("快照讀取失敗")
+        raise ApiError("資料暫時無法讀取", 503)
+
+
+def get_index_or_503():
+    """讀產業指數快取；資料表不存在或讀取失敗回 503。"""
+    try:
+        return index_cache.get()
+    except Exception:
+        app.logger.exception("指數讀取失敗")
+        raise ApiError("資料暫時無法讀取", 503)
+
+
+def get_industries_or_503():
+    try:
+        return get_all_industries()
+    except Exception:
+        app.logger.exception("產業名稱讀取失敗")
         raise ApiError("資料暫時無法讀取", 503)
 
 
@@ -174,6 +198,94 @@ def api_company_trends(stock_id):
                       for r in ex_rows],
         "signals": (snap.get("signals") or {}).get(stock_id, []),
     })
+
+
+@app.route('/api/index_series')
+def api_index_series():
+    """指數走勢：每條序列以區間首點為 100；node 即時讀，其餘取快取。"""
+    rng = request.args.get("range", "3M")
+    if rng not in RANGES:
+        raise ApiError("range 只能是 1M、3M、6M、1Y", 400)
+    keys = [k for k in request.args.get("keys", "").split(",") if k]
+    if len(keys) > MAX_INDEX_KEYS:
+        raise ApiError(f"最多 {MAX_INDEX_KEYS} 條", 400)
+    for k in keys:
+        if not INDEX_KEY_RE.fullmatch(k):
+            raise ApiError("key 格式錯誤", 400)
+    n = RANGES[rng]
+    idx = get_index_or_503()
+    node_ids = [k.split(":", 1)[1] for k in keys if k.startswith("node:")]
+    node_pts = {}
+    if node_ids:
+        since = (date.today() - timedelta(days=int(n * 7 / 5) + 10)).isoformat()
+        try:
+            node_pts = index_data.node_series(node_ids, since)
+        except Exception:
+            app.logger.exception("節點指數讀取失敗")
+            raise ApiError("資料暫時無法讀取", 503)
+    series, first_date = {}, {}
+    for k in dict.fromkeys(keys):
+        pts = node_pts.get(k, []) if k.startswith("node:") else idx["series"].get(k, [])
+        series[k] = rebase(pts, n)
+        first_date[k] = pts[0][0] if pts else None
+    return jsonify({"series": series, "first_date": first_date,
+                    "changed": sorted(k for k in series if k in idx["changed"]),
+                    "notes": NOTES})
+
+
+@app.route('/api/industry_ranking')
+def api_industry_ranking():
+    """產業排行：區間漲跌（指數）與近 5 日法人買賣超（快照）。"""
+    idx = get_index_or_503()
+    snap = get_snapshot_or_503()
+    industries = get_industries_or_503()
+    flows = snap.get("flows") or {}
+    rows = []
+    for m in industries:
+        mid = m["major_id"]
+        pts = idx["series"].get(key_str("major", mid), [])
+        ft = flow_totals(flows, idx["members"].get(("major", mid), ()), 5)
+        rows.append({"major_id": mid, "name": m["major_name"],
+                     "r1": period_change(pts, 1), "r5": period_change(pts, 5),
+                     "r20": period_change(pts, 20),
+                     "foreign5": ft["foreign_lots"], "trust5": ft["trust_lots"],
+                     "flow_count": ft["count"]})
+    mkt = idx["series"].get(key_str("market", "TW"), [])
+    return jsonify({"rows": rows,
+                    "market": {"r1": period_change(mkt, 1), "r5": period_change(mkt, 5),
+                               "r20": period_change(mkt, 20)},
+                    "flow_date": snap.get("flow_date"), "notes": NOTES})
+
+
+@app.route('/api/rotation')
+def api_rotation():
+    """相對輪動：各產業相對大盤的 RRG 座標；歷史不足者不列入。"""
+    idx = get_index_or_503()
+    industries = get_industries_or_503()
+    mkt = idx["series"].get(key_str("market", "TW"), [])
+    points = []
+    for m in industries:
+        r = rrg(idx["series"].get(key_str("major", m["major_id"]), []), mkt)
+        if r is None:
+            continue
+        points.append({"major_id": m["major_id"], "name": m["major_name"], **r})
+    return jsonify({"points": points, "as_of": mkt[-1][0] if mkt else None, "notes": NOTES})
+
+
+@app.route('/api/node_flows/<major_id>')
+def api_node_flows(major_id):
+    """產業內各節點的法人買賣超加總（張）；count 為有資料家數。"""
+    period = parse_period()
+    idx = get_index_or_503()
+    snap = get_snapshot_or_503()
+    flows = snap.get("flows") or {}
+    node_ids = list(dict.fromkeys(r["node_id"] for r in idx["mapping"] if r["major_id"] == major_id))
+    nodes = []
+    for nid in node_ids:
+        ft = flow_totals(flows, idx["members"].get(("node", nid), ()), period)
+        nodes.append({"node_id": nid, "foreign_lots": ft["foreign_lots"],
+                      "trust_lots": ft["trust_lots"], "count": ft["count"]})
+    return jsonify({"flow_date": snap.get("flow_date"), "nodes": nodes})
 
 
 @app.route('/api/freshness')
