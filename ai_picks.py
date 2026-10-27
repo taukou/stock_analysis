@@ -8,6 +8,7 @@
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -161,8 +162,16 @@ def build_prompt(ctx: dict) -> str:
 
 # ---------- 呼叫 Gemini ----------
 
-def call_gemini(prompt: str, api_key: str, models=None, post=requests.post) -> tuple[dict, str]:
-    """回傳 (解析後的 JSON, 實際使用的模型)。模型不存在（404）時換下一個；其他錯誤直接拋出。"""
+RETRY_STATUS = (500, 503)          # 模型忙碌等暫時性錯誤：等一下重試，仍失敗就換下一個模型
+RETRY_WAITS = (5, 15)
+
+
+def call_gemini(prompt: str, api_key: str, models=None, post=requests.post,
+                sleep=time.sleep) -> tuple[dict, str]:
+    """回傳 (解析後的 JSON, 實際使用的模型)。
+
+    模型不存在（404）或持續忙碌（500/503 重試後仍失敗）時換下一個模型；其他錯誤直接拋出。
+    """
     models = models or ([os.environ["GEMINI_MODEL"]] if os.environ.get("GEMINI_MODEL") else list(DEFAULT_MODELS))
     body = {
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
@@ -172,8 +181,13 @@ def call_gemini(prompt: str, api_key: str, models=None, post=requests.post) -> t
     }
     last = None
     for model in models:
-        res = post(API_URL.format(model=model), json=body, timeout=120,
-                   headers={"x-goog-api-key": api_key, "Content-Type": "application/json"})
+        for wait in (*RETRY_WAITS, None):
+            res = post(API_URL.format(model=model), json=body, timeout=120,
+                       headers={"x-goog-api-key": api_key, "Content-Type": "application/json"})
+            if res.status_code not in RETRY_STATUS or wait is None:
+                break
+            log.warning("Gemini %s 忙碌（%s），%s 秒後重試", model, res.status_code, wait)
+            sleep(wait)
         if res.status_code == 404:
             last = f"找不到模型 {model}"
             continue
@@ -183,6 +197,10 @@ def call_gemini(prompt: str, api_key: str, models=None, post=requests.post) -> t
                 msg = res.json().get("error", {}).get("message", "")
             except ValueError:
                 msg = ""
+            if res.status_code in RETRY_STATUS:
+                last = f"模型 {model} 忙碌（{res.status_code}）"
+                log.warning("%s，改試下一個模型", last)
+                continue
             raise AiPicksError(f"Gemini 回應 {res.status_code}：{msg[:200]}")
         data = res.json()
         try:
@@ -194,7 +212,7 @@ def call_gemini(prompt: str, api_key: str, models=None, post=requests.post) -> t
             return json.loads(text), model
         except ValueError:
             raise AiPicksError("Gemini 回傳的不是有效的 JSON")
-    raise AiPicksError(f"{last}；可在 .env 設定 GEMINI_MODEL 指定模型")
+    raise AiPicksError(f"{last}；稍後再試，或在 .env 設定 GEMINI_MODEL 指定其他模型")
 
 
 # ---------- 檢查與存檔 ----------

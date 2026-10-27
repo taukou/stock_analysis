@@ -82,6 +82,20 @@ def test_call_gemini_falls_back_on_404_and_skips_thought_parts():
     assert model == ai_picks.DEFAULT_MODELS[1] and len(calls) == 2
 
 
+def test_call_gemini_retries_busy_model_then_falls_back():
+    seq = [Res(503, {}), Res(503, {}), Res(503, {}), _ok({"overview": "o", "picks": []})]
+    waits, urls = [], []
+    out, model = ai_picks.call_gemini("p", "k", post=lambda url, **kw: (urls.append(url), seq.pop(0))[1],
+                                      sleep=waits.append)
+    assert waits == list(ai_picks.RETRY_WAITS) and model == ai_picks.DEFAULT_MODELS[1]
+    assert sum(ai_picks.DEFAULT_MODELS[0] in u for u in urls) == 3
+    seq = [Res(503, {}), _ok({"overview": "o", "picks": []})]
+    _, model = ai_picks.call_gemini("p", "k", post=lambda url, **kw: seq.pop(0), sleep=lambda s: None)
+    assert model == ai_picks.DEFAULT_MODELS[0]
+    with pytest.raises(ai_picks.AiPicksError, match="忙碌"):
+        ai_picks.call_gemini("p", "k", post=lambda url, **kw: Res(503, {}), sleep=lambda s: None)
+
+
 def test_call_gemini_uses_env_model(monkeypatch):
     monkeypatch.setenv("GEMINI_MODEL", "gemini-x")
     seen = []
