@@ -109,3 +109,33 @@ def test_exception_returns_failed():
     s.quotes_between = boom
     r = sync_index(s, NOW)
     assert r.status == "failed" and "壞了" in r.message
+
+
+def test_new_scope_with_member_missing_on_last_keeps_going():
+    s = FakeStore()
+    _seed(s)
+    sync_index(s, NOW)
+    s.mapping = _mapping() + [{"node_id": "N9", "stock_id": "2222",
+                               "major_id": "M1", "position_type": "up"}]
+    _q(s, "1111", D4, 12)   # 2222 在 D4 停牌
+    sync_index(s, NOW)
+    assert _row(s, "node", "N9", D4)["ret_pct"] is None
+    _q(s, "1111", "2026-10-30", 12)
+    _q(s, "2222", "2026-10-30", 19)
+    r = sync_index(s, datetime(2026, 11, 2, 18))
+    assert ("node", "N9", "2026-10-30") in s.tables["industry_index_daily"]
+    assert r.last_date == "2026-10-30"
+
+
+def test_registered_scope_without_last_row_resumes_from_own_last_row():
+    s = FakeStore()
+    _seed(s)
+    sync_index(s, NOW)
+    for sid, d in [("1111", D4), ("2222", D4)]:
+        _q(s, sid, d, 11 if sid == "1111" else 18)
+    s.mapping = []          # 節點暫時移出
+    sync_index(s, NOW)
+    assert ("node", "N1", D4) not in s.tables["industry_index_daily"]
+    s.mapping = _mapping()
+    sync_index(s, NOW)
+    assert ("node", "N1", D4) in s.tables["industry_index_daily"]

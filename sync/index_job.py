@@ -59,6 +59,27 @@ def _chain(dates: list[str], by_date, ex_by_date, scopes: dict, levels=None,
     return rows
 
 
+def _resume_scope(store, key, members, today: str) -> list[dict]:
+    """範圍在最新日沒有列時，由它自己最後一列的點位接續到今天。"""
+    lr = store.index_last_row(key)
+    if lr is None:
+        log.warning("範圍 %s 已登錄但沒有任何指數列，略過", key)
+        return []
+    start = (date.fromisoformat(lr["trade_date"]) - timedelta(days=LOOKBACK_DAYS)).isoformat()
+    q = store.quotes_between(start, today)
+    ds = sorted(trading_dates(q))
+    old = [d for d in ds if d <= lr["trade_date"]]
+    todo = [d for d in ds if d > lr["trade_date"]]
+    if not todo:
+        return []
+    if not old:
+        log.warning("範圍 %s 找不到 %s 的報價，無法接續", key, lr["trade_date"])
+        return []
+    return _chain(todo, _by_date(q), _ex_by_date(store.ex_rights_between(start, today)),
+                  {key: members}, levels={key: lr["level"]},
+                  prev=closes_by_stock(_by_date(q).get(old[-1], [])))
+
+
 def sync_index(store, now: datetime) -> JobResult:
     try:
         today = now.date().isoformat()
@@ -83,17 +104,24 @@ def sync_index(store, now: datetime) -> JobResult:
         else:
             old_dates = [d for d in dates if d <= last]
             todo = [d for d in dates if d > last]
+            prev_levels = {(r["scope_kind"], r["scope_id"]): r["level"]
+                           for r in store.index_rows_on(last)}
+            normal = {k: m for k, m in mapping.items()
+                      if k not in new_keys and k in prev_levels}
+            # 已登錄但最新日沒有列的範圍（曾移出成分表又回來等）：由各自最後一列接續
+            stale = [k for k in mapping if k not in new_keys and k not in prev_levels]
             if todo and old_dates:
-                prev_levels = {(r["scope_kind"], r["scope_id"]): r["level"]
-                               for r in store.index_rows_on(last)}
-                scopes = {MARKET_KEY: None}
-                scopes.update({k: m for k, m in mapping.items() if k not in new_keys})
+                scopes = {MARKET_KEY: None, **normal}
                 rows = _chain(todo, by_date, ex_by_date, scopes, levels=prev_levels,
                               prev=closes_by_stock(by_date.get(old_dates[-1], [])))
-            if new_keys:   # 新範圍：從資料庫最早交易日以 100 起算到今天
-                ids = sorted(set().union(*(mapping[k] for k in new_keys)))
-                nq = store.quotes_between(EARLIEST, today, ids=ids)
-                rows += _chain(sorted(trading_dates(nq)), _by_date(nq),
+            for k in stale:
+                rows += _resume_scope(store, k, mapping[k], today)
+            if new_keys:   # 新範圍：用全市場交易日曆，從資料庫最早交易日以 100 起算到今天
+                allq = store.quotes_between(EARLIEST, today)
+                cal = sorted(trading_dates(allq))
+                ids = set().union(*(mapping[k] for k in new_keys))
+                mq = [q for q in allq if q["stock_id"] in ids]
+                rows += _chain(cal, _by_date(mq),
                                _ex_by_date(store.ex_rights_between(EARLIEST, today)),
                                {k: mapping[k] for k in new_keys})
 

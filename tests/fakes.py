@@ -61,5 +61,10 @@ class FakeStore:
         rows = self.tables.get("industry_index_daily", {}).values()
         return [dict(r) for r in rows if r["trade_date"] == trade_date]
 
+    def index_last_row(self, key):
+        rows = [r for r in self.tables.get("industry_index_daily", {}).values()
+                if (r["scope_kind"], r["scope_id"]) == tuple(key)]
+        return dict(max(rows, key=lambda r: r["trade_date"])) if rows else None
+
     def index_scope_keys(self):
         return {(k[0], k[1]) for k in self.tables.get("industry_index_scopes", {})}

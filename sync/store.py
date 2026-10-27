@@ -104,6 +104,14 @@ class Store:
                            .eq("trade_date", trade_date)
                            .order("scope_kind").order("scope_id"))
 
+    def index_last_row(self, key: tuple[str, str]) -> dict | None:
+        res = (self.client.table("industry_index_daily")
+               .select("scope_kind, scope_id, trade_date, level")
+               .eq("scope_kind", key[0]).eq("scope_id", key[1])
+               .order("trade_date", desc=True).limit(1).execute())
+        data = res.data or []
+        return data[0] if data else None
+
     def index_scope_keys(self) -> set[tuple[str, str]]:
         rows = self._paged(lambda: self.client.table("industry_index_scopes")
                            .select("scope_kind, scope_id")
