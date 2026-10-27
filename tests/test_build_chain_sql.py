@@ -51,7 +51,8 @@ def test_build_sql_contents(chains):
     assert "delete" not in sql.lower() and "on commit" not in sql
     assert "drop table if exists pg_temp._majors" in sql
     assert "from value_chain_nodes with no data" in sql   # 暫存表沿用目標欄位型別
-    assert sql.count("begin;") == 1 and sql.rstrip().endswith("commit;")
+    assert sql.count("do $import$") == 1 and sql.rstrip().endswith("$import$;")
+    assert "begin;" not in sql and "commit;" not in sql and "$import$" not in sql.split("do $import$")[1][:-12]
     assert report[0] == "M01 半導體：12 個節點、1 家公司（新公司 0、新對應 0）"
     assert "1111 下市了" in report[1]
     assert report[2] == "M05 被動元件：3 個節點、2 家公司（新公司 2、新對應 3）"

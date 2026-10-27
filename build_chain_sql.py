@@ -116,10 +116,11 @@ def build(chains: dict[str, Chain], official: dict[str, tuple[str, str]],
     company_rows = sorted(companies.values())
     sql = f"""-- 由 build_chain_sql.py 於 {datetime.now():%Y-%m-%d %H:%M} 產生；資料來源：https://ic.tpex.org.tw
 -- 只新增／更新、不刪除，可重複執行。請整份貼到 Supabase SQL Editor 執行。
-begin;
+-- 整份包在一個 DO 區塊：SQL Editor 不保證每句用同一個連線，單一指令才能共用暫存表，且失敗時整份取消。
+do $import$
+begin
 
--- 暫存表直接複製目標表的欄位型別（例如 position_type 是 enum），值寫進來時就轉好型別。
--- SQL Editor 可能逐句自動提交，暫存表不能設成提交時自動刪除；改成最後手動刪掉（只刪 pg_temp 裡的）
+-- 暫存表直接複製目標表的欄位型別（例如 position_type 是 enum），值寫進來時就轉好型別
 drop table if exists pg_temp._majors, pg_temp._nodes, pg_temp._companies, pg_temp._pairs;
 create temp table _majors as
   select major_id, major_name, description from major_industries with no data;
@@ -171,11 +172,12 @@ where not exists (select 1 from company_node_mapping m
                   where m.node_id = v.node_id and m.stock_id = v.stock_id);
 
 -- 5. 新公司的最新股價（歷史行情原本就已整個市場同步）
-select refresh_company_latest();
+perform refresh_company_latest();
 
 drop table if exists pg_temp._majors, pg_temp._nodes, pg_temp._companies, pg_temp._pairs;
 
-commit;
+end
+$import$;
 """
     return sql, report
 
