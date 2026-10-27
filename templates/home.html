@@ -205,6 +205,17 @@
         .rank-table .none { color: var(--text-3); }
         .chart-note, .trend-note { color: var(--text-3); font-size: 0.8rem; line-height: 1.6; margin-top: 10px; }
         .trend-msg { text-align: center; color: var(--text-2); padding: 24px 0; }
+        /* 輪動圖互動說明：象限按鈕、說明列、可展開的「怎麼看」 */
+        .rrg-guide { margin-bottom: 10px; }
+        .rrg-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .rrg-chip { padding: 4px 12px; border-radius: 999px; font: inherit; font-size: 0.85rem; cursor: pointer;
+            color: var(--text-1); background: rgba(var(--tint), 0.14); border: 1px solid rgba(var(--tint), 0.45); }
+        .rrg-chip:hover, .rrg-chip.on { background: rgba(var(--tint), 0.32); border-color: rgba(var(--tint), 0.9); }
+        .rrg-desc { min-height: 1.6em; margin: 8px 0 4px; color: var(--text-2); font-size: 0.88rem; line-height: 1.6; }
+        .rrg-help { color: var(--text-2); font-size: 0.85rem; line-height: 1.7; }
+        .rrg-help summary { cursor: pointer; color: var(--text-1); width: fit-content; }
+        .rrg-help ul { margin: 6px 0 0; padding-left: 20px; }
+        .rrg-help b { color: var(--text-1); font-weight: 600; }
         .nav-link { padding: 6px 14px; color: var(--text-2); text-decoration: none; }
         .nav-link:hover { color: var(--text-1); }
 
@@ -292,7 +303,7 @@
 
         <section class="trend-section" id="rotation">
             <h2 class="section-title">產業輪動</h2>
-            <p class="section-sub">各產業相對大盤的強弱與變化速度（含近 8 週軌跡）</p>
+            <p class="section-sub">各產業相對大盤的強弱與變化速度（含近 8 週軌跡），點象限或產業看說明</p>
             <div class="trend-box glass" id="rotation-box"><p class="trend-msg">載入中…</p></div>
             <p class="trend-note survivor-note">{{ SURVIVOR_NOTE }}</p>
         </section>

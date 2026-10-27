@@ -76,3 +76,21 @@ test("contentWidth subtracts horizontal padding so charts never overflow their b
   assert.strictEqual(T.contentWidth(el, () => ({})), 900);
   assert.strictEqual(T.contentWidth(el, undefined), 900);
 });
+
+test("rotation guide: plain-language quadrant text and per-quadrant counts", () => {
+  assert.deepStrictEqual(Object.keys(T.QUAD_INFO), ["領先", "轉弱", "落後", "轉強"]);
+  assert.strictEqual(T.describePoint({ name: "半導體", quadrant: "轉弱", x: 101.2, y: 98.5 }),
+    "半導體在「轉弱」：仍比大盤強，但優勢在縮小");
+  // 缺 quadrant 時依 x、y 判斷（100 本身算偏強／加速）
+  assert.strictEqual(T.describePoint({ name: "PCB", x: 100, y: 100 }), "PCB在「領先」：比大盤強，而且越來越強");
+  const pts = [{ quadrant: "領先" }, { quadrant: "領先" }, { x: 99, y: 101 }];
+  assert.deepStrictEqual(T.quadrantCounts(pts), { 領先: 2, 轉弱: 0, 落後: 0, 轉強: 1 });
+});
+
+test("spreadLabels pushes overlapping labels apart and leaves free ones alone", () => {
+  const items = [{ x: 100, y: 200, w: 60 }, { x: 110, y: 204, w: 60 }, { x: 400, y: 200, w: 60 }];
+  const ys = T.spreadLabels(items, 13);
+  assert.strictEqual(ys[2], 200);
+  assert.ok(Math.abs(ys[0] - ys[1]) >= 13);
+  assert.ok(ys.slice(0, 2).includes(200));
+});

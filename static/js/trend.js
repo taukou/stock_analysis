@@ -159,6 +159,81 @@
   }
 
   const QUAD_LABELS = [["領先", 1, 1], ["轉弱", 1, 0], ["落後", 0, 0], ["轉強", 0, 1]];   // [名稱, 右側?, 上方?]
+  // 四象限的白話說明與底色；產業通常依 轉強 → 領先 → 轉弱 → 落後 → 轉強 順時針輪動
+  const QUAD_INFO = {
+    "領先": { text: "比大盤強，而且越來越強", next: "轉弱", tint: "61,220,151" },
+    "轉弱": { text: "仍比大盤強，但優勢在縮小", next: "落後", tint: "251,191,36" },
+    "落後": { text: "比大盤弱，而且越來越弱", next: "轉強", tint: "255,107,129" },
+    "轉強": { text: "仍比大盤弱，但差距在縮小", next: "領先", tint: "90,200,250" },
+  };
+  const quadrantOf = p => p.quadrant || (p.x >= 100 ? (p.y >= 100 ? "領先" : "轉弱") : (p.y >= 100 ? "轉強" : "落後"));
+  const describePoint = p => { const q = quadrantOf(p); return `${p.name}在「${q}」：${QUAD_INFO[q].text}`; };
+  function quadrantCounts(points) {
+    const out = { 領先: 0, 轉弱: 0, 落後: 0, 轉強: 0 };
+    points.forEach(p => { out[quadrantOf(p)] += 1; });
+    return out;
+  }
+
+  // 互動說明：「怎麼看這張圖？」可展開；象限按鈕（滑鼠移上預覽、點擊鎖定）標亮該象限與其中產業
+  // 回傳 { desc, setText(t), reset() }：desc 是說明文字列，圖上的滑鼠事件也寫到這裡
+  function rotationGuide(el, counts, onPick) {
+    const IDLE = "移到象限或產業上看說明，點產業可進入產業頁";
+    const wrap = document.createElement("div");
+    wrap.className = "rrg-guide";
+    const chips = document.createElement("div");
+    chips.className = "rrg-chips";
+    const desc = document.createElement("p");
+    desc.className = "rrg-desc";
+    let locked = null;
+    const quadText = q => `${q}：${QUAD_INFO[q].text}，之後通常進入「${QUAD_INFO[q].next}」`;
+    const reset = () => { desc.textContent = locked ? quadText(locked) : IDLE; onPick(locked); };
+    QUAD_LABELS.forEach(([q]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "rrg-chip";
+      b.style.setProperty("--tint", QUAD_INFO[q].tint);
+      b.textContent = `${q} ${counts[q]}`;
+      b.addEventListener("mouseenter", () => { desc.textContent = quadText(q); onPick(q); });
+      b.addEventListener("mouseleave", reset);
+      b.addEventListener("click", () => {
+        locked = locked === q ? null : q;
+        chips.querySelectorAll(".rrg-chip").forEach(c => c.classList.toggle("on", c === b && locked === q));
+        reset();
+      });
+      chips.appendChild(b);
+    });
+    const help = document.createElement("details");
+    help.className = "rrg-help";
+    help.innerHTML = "<summary>怎麼看這張圖？</summary><ul>"
+      + "<li><b>橫軸「相對大盤強弱」</b>：產業相對大盤的表現，和它自己近 50 天的平均相比；超過 100 代表近期比大盤強。</li>"
+      + "<li><b>縱軸「強弱變化速度」</b>：橫軸數值和 10 天前相比；超過 100 代表相對強勢正在增加。</li>"
+      + "<li><b>線條是軌跡</b>：每 5 天一點、約 8 週，大圓點是最新位置，小點越淡越舊。</li>"
+      + "<li><b>通常順時針輪動</b>：轉強（左上）→ 領先（右上）→ 轉弱（右下）→ 落後（左下）→ 再轉強。這是常見規律，不是保證。</li>"
+      + "</ul>";
+    wrap.append(chips, desc, help);
+    el.appendChild(wrap);
+    desc.textContent = IDLE;
+    return { setText: t => { desc.textContent = t; }, reset };
+  }
+
+  // 標籤避讓：items=[{x,y,w}]（標籤左上起點 x、基線 y、寬 w），由上往下放，與已放的重疊就往下推；回傳新的 y
+  function spreadLabels(items, lineH) {
+    const order = items.map((it, i) => i).sort((a, b) => items[a].y - items[b].y || a - b);
+    const placed = [], ys = new Array(items.length);
+    order.forEach(i => {
+      const it = items[i];
+      let y = it.y, moved = true;
+      while (moved) {
+        moved = false;
+        for (const p of placed) {
+          if (it.x < p.x + p.w && p.x < it.x + it.w && Math.abs(y - p.y) < lineH) { y = p.y + lineH; moved = true; }
+        }
+      }
+      ys[i] = y;
+      placed.push({ x: it.x, y, w: it.w });
+    });
+    return ys;
+  }
 
   // 輪動圖（RRG）：points = [{major_id,name,x,y,quadrant,trail:[{date,x,y}]}]；中心 (100,100)，軌跡由舊到新
   function rotationChart(container, points, notes) {
@@ -169,6 +244,17 @@
       el.textContent = "指數資料不足 60 個交易日，暫無輪動圖";
       return;
     }
+    const quadRects = {}, groups = [];
+    // 標亮：象限 q 或單一產業 id；兩者皆 null 時復原
+    const highlight = (q, id) => {
+      Object.entries(quadRects).forEach(([name, r]) => r.attr("opacity", q ? (name === q ? 0.22 : 0.03) : 0.08));
+      groups.forEach(({ g, p }) => {
+        const on = id ? p.major_id === id : q ? quadrantOf(p) === q : true;
+        g.attr("opacity", on ? 1 : 0.15);
+        g.select("path").attr("stroke-width", id && on ? 3 : 1.5).attr("opacity", id && on ? 0.95 : 0.55);
+      });
+    };
+    const guide = rotationGuide(el, quadrantCounts(points), q => highlight(q, null));
     const gcs = typeof getComputedStyle === "function" ? getComputedStyle : undefined;
     const w = Math.max(contentWidth(el, gcs) || 600, 280), h = Math.min(Math.max(w * 0.7, 320), 520);
     const M = { top: 14, right: 16, bottom: 40, left: 46 };
@@ -178,6 +264,15 @@
     const x = d3.scaleLinear().domain([100 - dx, 100 + dx]).range([M.left, w - M.right]);
     const y = d3.scaleLinear().domain([100 - dy, 100 + dy]).range([h - M.bottom, M.top]);
     const svg = d3.select(el).append("svg").attr("width", w).attr("height", h).style("display", "block");
+    // 象限底色（標亮時加深）；滑鼠移上顯示該象限說明
+    QUAD_LABELS.forEach(([name, right, top]) => {
+      const x0 = right ? x(100) : M.left, x1 = right ? w - M.right : x(100);
+      const y0 = top ? M.top : y(100), y1 = top ? y(100) : h - M.bottom;
+      quadRects[name] = svg.append("rect").attr("x", x0).attr("y", y0).attr("width", x1 - x0).attr("height", y1 - y0)
+        .attr("fill", `rgb(${QUAD_INFO[name].tint})`).attr("opacity", 0.08)
+        .on("mouseenter", () => guide.setText(`${name}：${QUAD_INFO[name].text}，之後通常進入「${QUAD_INFO[name].next}」`))
+        .on("mouseleave", guide.reset);
+    });
     const axisStyle = g => {
       g.selectAll("text").style("fill", "var(--text-2)").style("font-size", "10px");
       g.selectAll("path, line").style("stroke", "var(--text-3)");
@@ -186,34 +281,53 @@
     axisStyle(svg.append("g").attr("transform", `translate(${M.left},0)`).call(d3.axisLeft(y).ticks(5).tickSize(3)));
     // 十字中線
     svg.append("line").attr("x1", x(100)).attr("x2", x(100)).attr("y1", M.top).attr("y2", h - M.bottom)
-      .style("stroke", "var(--text-3)").style("stroke-dasharray", "3 3");
+      .style("stroke", "var(--text-3)").style("stroke-dasharray", "3 3").style("pointer-events", "none");
     svg.append("line").attr("y1", y(100)).attr("y2", y(100)).attr("x1", M.left).attr("x2", w - M.right)
-      .style("stroke", "var(--text-3)").style("stroke-dasharray", "3 3");
+      .style("stroke", "var(--text-3)").style("stroke-dasharray", "3 3").style("pointer-events", "none");
     // 四象限標字
     QUAD_LABELS.forEach(([name, right, top]) => {
       svg.append("text").text(name)
         .attr("x", right ? w - M.right - 6 : M.left + 6).attr("y", top ? M.top + 14 : h - M.bottom - 8)
-        .attr("text-anchor", right ? "end" : "start")
+        .attr("text-anchor", right ? "end" : "start").style("pointer-events", "none")
         .style("fill", "var(--text-3)").style("font-size", "13px").style("font-weight", "600");
     });
     // 軸標題（附 MARKET_NOTE）
-    const xt = svg.append("text").text("相對大盤強弱").attr("x", (M.left + w - M.right) / 2).attr("y", h - 8)
+    const xt = svg.append("text").text("相對大盤強弱 →").attr("x", (M.left + w - M.right) / 2).attr("y", h - 8)
       .attr("text-anchor", "middle").style("fill", "var(--text-2)").style("font-size", "12px").style("cursor", "help");
     xt.append("title").text(note);
-    const yt = svg.append("text").text("強弱變化速度").attr("transform", `translate(12,${(M.top + h - M.bottom) / 2}) rotate(-90)`)
+    const yt = svg.append("text").text("強弱變化速度 →").attr("transform", `translate(12,${(M.top + h - M.bottom) / 2}) rotate(-90)`)
       .attr("text-anchor", "middle").style("fill", "var(--text-2)").style("font-size", "12px").style("cursor", "help");
     yt.append("title").text(note);
 
+    const labelItems = points.map(p => ({ x: x(p.x) + 9, y: y(p.y) + 4, w: p.name.length * 11 + 4 }));
+    const labelYs = spreadLabels(labelItems, 13);
+    const labels = labelItems.map((it, i) => ({ x: it.x + (labelYs[i] !== it.y ? 6 : 0), y: labelYs[i] }));
     points.forEach((p, i) => {
       const c = COLORS[i % COLORS.length];
-      const g = svg.append("g");
+      const g = svg.append("g").style("cursor", "pointer");
       const trail = (p.trail || []).concat([{ date: null, x: p.x, y: p.y }]);
       g.append("path").datum(trail).attr("fill", "none").attr("stroke", c).attr("stroke-width", 1.5).attr("opacity", 0.55)
         .attr("d", d3.line().x(t => x(t.x)).y(t => y(t.y)));
-      g.append("circle").attr("cx", x(p.x)).attr("cy", y(p.y)).attr("r", 5).attr("fill", c)
-        .append("title").text(`${p.name}（${p.quadrant}）x=${p.x} y=${p.y}`);
-      g.append("text").text(p.name).attr("x", x(p.x) + 8).attr("y", y(p.y) + 4)
+      (p.trail || []).forEach((t, k) => {
+        g.append("circle").attr("cx", x(t.x)).attr("cy", y(t.y)).attr("r", 2.2)
+          .attr("fill", c).attr("opacity", 0.2 + 0.6 * (k + 1) / trail.length);
+      });
+      g.append("circle").attr("cx", x(p.x)).attr("cy", y(p.y)).attr("r", 6).attr("fill", c)
+        .attr("stroke", "rgba(255,255,255,0.7)").attr("stroke-width", 1);
+      const label = labels[i];
+      if (Math.abs(label.y - (y(p.y) + 4)) > 1) {   // 被推開的標籤畫一條細引線回到圓點
+        g.append("line").attr("x1", x(p.x) + 5).attr("y1", y(p.y)).attr("x2", label.x - 2).attr("y2", label.y - 4)
+          .attr("stroke", c).attr("stroke-width", 0.8).attr("opacity", 0.7);
+      }
+      g.append("text").text(p.name).attr("x", label.x).attr("y", label.y)
         .style("fill", "var(--text-1)").style("font-size", "11px");
+      const start = (p.trail && p.trail[0] && p.trail[0].date) || "";
+      g.on("mouseenter", () => {
+        highlight(null, p.major_id);
+        guide.setText(`${describePoint(p)}（強弱 ${p.x}、速度 ${p.y}${start ? `，軌跡自 ${start} 起` : ""}）`);
+      }).on("mouseleave", guide.reset)
+        .on("click", () => { if (p.major_id) location.href = "/industry/" + encodeURIComponent(p.major_id) + "?trend=open"; });
+      groups.push({ g, p });
     });
     const small = document.createElement("p");
     small.className = "chart-note";
@@ -234,6 +348,6 @@
     return out;
   }
 
-  const api = { alertsFor, contentWidth, THRESHOLD_KEY, sortRows, rotationChart, MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart, relativeRanks, formatLots };
+  const api = { spreadLabels, QUAD_INFO, describePoint, quadrantCounts, alertsFor, contentWidth, THRESHOLD_KEY, sortRows, rotationChart, MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart, relativeRanks, formatLots };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Trend = api;
 })(typeof window !== "undefined" ? window : globalThis);
