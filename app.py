@@ -31,7 +31,13 @@ def home():
 @app.route('/industry/<major_id>')
 def industry_view(major_id):
     """主戰情室網頁：渲染 D3.js 畫布"""
-    return render_template('industry_d3.html', major_id=major_id)
+    try:
+        names = {m["major_id"]: m["major_name"] for m in get_all_industries()}
+    except Exception:
+        app.logger.exception("讀取產業名稱失敗，改顯示代號")
+        names = {}
+    return render_template('industry_d3.html', major_id=major_id,
+                           major_name=names.get(major_id, major_id))
 
 @app.route('/shader-test')
 def shader_test():

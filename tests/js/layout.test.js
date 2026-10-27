@@ -8,7 +8,7 @@ test("overview: crowded column staggers, labels of neighbours don't overlap", ()
     ...Array.from({ length: 7 }, (_, i) => ({ id: `d${i}`, group: "Downstream" })),
   ];
   const pos = L.overviewPositions(nodes, 1440, 900);
-  assert.strictEqual(pos.get("a")[0], 1440 * 0.15);          // 只有 2 個：不交錯
+  assert.strictEqual(pos.get("a")[0], 1440 * 0.24);          // 只有 2 個：不交錯（沒有中游：上游中心在 24%）
   const down = Array.from({ length: 7 }, (_, i) => pos.get(`d${i}`));
   assert.notStrictEqual(down[0][0], down[1][0]);              // 7 個：左右交錯
   for (let i = 0; i + 2 < 7; i++) {                           // 同一側上下相鄰：六角形＋兩行文字（約 140px）不重疊
@@ -63,7 +63,7 @@ test("overview: very crowded tier shrinks and spreads into several sub-columns w
   const up = Array.from({ length: 25 }, (_, i) => positions.get(`u${i}`));
   const xs = new Set(up.map(([x]) => x));
   assert.ok(xs.size >= 3);
-  xs.forEach(x => assert.ok(Math.abs(x - 1440 * 0.15) <= 1440 * 0.15));   // 不跑出上游那一區
+  xs.forEach(x => assert.ok(x >= 0 && x <= 1440 * 0.48));   // 不跑出上游那一區（沒有中游：左半邊）
   const nodeH = 140 * scale;
   for (let i = 0; i < 25; i++) for (let j = i + 1; j < 25; j++) {
     const [ax, ay] = up[i], [bx, by] = up[j];
@@ -75,4 +75,13 @@ test("overview: very crowded tier shrinks and spreads into several sub-columns w
 test("overview: normal industries keep full size", () => {
   const nodes = Array.from({ length: 6 }, (_, i) => ({ id: `n${i}`, group: "Downstream" }));
   assert.strictEqual(L.overviewPlan(nodes, 1440, 900).scale, 1);
+});
+
+test("overview: industries without midstream split the width between up- and downstream", () => {
+  const nodes = [{ id: "u", group: "Upstream" }, { id: "d", group: "Downstream" }];
+  const { positions, centers } = L.overviewPlan(nodes, 1000, 900);
+  assert.deepStrictEqual(centers, { Upstream: 240, Downstream: 760 });
+  assert.strictEqual(positions.get("u")[0], 240);
+  const full = L.overviewPlan([...nodes, { id: "m", group: "Midstream" }], 1000, 900);
+  assert.deepStrictEqual(full.centers, { Upstream: 150, Downstream: 850, Midstream: 500 });
 });

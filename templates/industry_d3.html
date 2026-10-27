@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>產業鏈戰情室</title>
+    <title>{{ major_name }}｜產業鏈戰情室</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='glass.css') }}">
     <style>
@@ -134,7 +134,7 @@
     {% include '_glass_filter.html' %}
     <div id="status-banner" class="glass glass-pill" role="status" aria-live="polite"></div>
     <nav id="nav-header" class="glass glass-pill refract" aria-label="導覽">
-        <a href="/">← 產業列表</a><span class="sep">/</span><strong>{{ major_id }}</strong>
+        <a href="/">← 產業列表</a><span class="sep">/</span><strong>{{ major_name }}</strong>
         <input id="search-input" class="search-input" type="search" placeholder="搜尋代號／名稱" aria-label="搜尋公司" autocomplete="off">
     </nav>
     <div id="search-list" class="search-list glass" role="listbox"></div>

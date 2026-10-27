@@ -11,6 +11,12 @@ def client():
     return app_module.app.test_client()
 
 
+@pytest.fixture(autouse=True)
+def no_industry_names(monkeypatch):
+    # 產業頁會讀產業名稱；測試不連資料庫
+    monkeypatch.setattr(app_module, "get_all_industries", lambda: [])
+
+
 def test_industry_nodes_shape(client, monkeypatch):
     rows = [
         {"node_id": "n1", "node_name": "晶圓代工", "position_type": "Midstream", "display_order": 1},
@@ -217,3 +223,19 @@ def test_home_has_nav_tabs_and_no_view_industries_button(client, monkeypatch):
         assert f'href="{href}"' in html and f">{label}</a>" in html
     assert "查看產業" not in html
     assert 'id="top"' in html
+
+
+def test_industry_page_shows_industry_name(client, monkeypatch):
+    monkeypatch.setattr(app_module, "get_all_industries",
+                        lambda: [{"major_id": "M02", "major_name": "電腦及週邊設備"}])
+    html = client.get("/industry/M02").get_data(as_text=True)
+    assert "<strong>電腦及週邊設備</strong>" in html
+    assert "<strong>M09</strong>" in client.get("/industry/M09").get_data(as_text=True)
+
+
+def test_industry_page_survives_name_lookup_failure(client, monkeypatch):
+    def boom():
+        raise RuntimeError("down")
+    monkeypatch.setattr(app_module, "get_all_industries", boom)
+    res = client.get("/industry/M03")
+    assert res.status_code == 200 and "<strong>M03</strong>" in res.get_data(as_text=True)

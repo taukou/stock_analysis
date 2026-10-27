@@ -4,16 +4,17 @@
 
   // ---- 總覽：上中下游三欄，每欄節點依序排列；太擠時分成幾個左右錯開的小欄，讓名稱與平均值不被鄰居蓋住 ----
   // 節點多到一欄放不下（如電腦週邊上游 25 個）時，整張圖等比例縮小（scale）再排
-  const COLUMN_X = { Upstream: 0.15, Midstream: 0.5, Downstream: 0.85 };
+  // 每一層可用的水平範圍（佔畫面寬）；沒有中游的產業，上下游各分一半
+  const BANDS = { Upstream: [0, 0.3], Midstream: [0.35, 0.65], Downstream: [0.7, 1] };
+  const BANDS_NO_MID = { Upstream: [0, 0.48], Downstream: [0.52, 1] };
   const HEX_ABOVE = 50, HEX_BELOW = 90;          // 六角形（半徑 45）上緣與下方兩行文字的範圍
   const SUB_DX = 160;                            // 相鄰小欄的水平距離（縮放前）
-  const COLUMN_W = 0.3;                          // 每一層可用的寬度（佔畫面寬）
   const MIN_SCALE = 0.55;
 
   function groupByTier(nodes) {
     const groups = new Map();
     nodes.forEach(n => {
-      const key = n.group in COLUMN_X ? n.group : "Midstream";
+      const key = n.group in BANDS ? n.group : "Midstream";
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(n);
     });
@@ -30,9 +31,12 @@
 
   function overviewPlan(nodes, width, height, top = 100, bottom = 50) {
     const groups = groupByTier(nodes);
-    const fits = s => [...groups.values()].every(list => {
+    const bands = groups.has("Midstream") ? BANDS : BANDS_NO_MID;
+    const centers = {};
+    groups.forEach((_, key) => { centers[key] = width * (bands[key][0] + bands[key][1]) / 2; });
+    const fits = s => [...groups.entries()].every(([key, list]) => {
       const c = subColumns(list.length, s, height, top, bottom);
-      return c === 1 || c * SUB_DX * s <= width * COLUMN_W;
+      return c === 1 || c * SUB_DX * s <= width * (bands[key][1] - bands[key][0]);
     });
     let scale = 1;
     while (scale > MIN_SCALE && !fits(scale)) scale = Math.round((scale - 0.05) * 100) / 100;
@@ -47,10 +51,10 @@
       const y0 = top + HEX_ABOVE * scale + (span - step * (k - 1)) / 2;   // 整欄垂直置中
       list.forEach((n, i) => {
         const dx = c > 1 ? ((i % c) - (c - 1) / 2) * SUB_DX * scale : 0;
-        positions.set(n.id, [width * COLUMN_X[key] + dx, y0 + step * i]);
+        positions.set(n.id, [centers[key] + dx, y0 + step * i]);
       });
     });
-    return { positions, scale };
+    return { positions, scale, centers };
   }
 
   function overviewPositions(nodes, width, height, top = 100, bottom = 50) {

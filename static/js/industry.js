@@ -8,11 +8,17 @@ const supplyLayer = container.append("g");   // 供應關係線（只在總覽�
 const linkLayer = container.append("g");
 const nodeLayer = container.append("g");
 
-// 💡 底部層級標籤
+// 底部層級標籤：位置跟著總覽各層的中心（沒有的層隱藏）
+const TIER_LABELS = [["Upstream", "上游", 0.15], ["Midstream", "中游", 0.5], ["Downstream", "下游", 0.85]];
 const labelLayer = svg.append("g").attr("class", "label-layer");
-labelLayer.append("text").attr("x", "15%").attr("y", window.innerHeight - 20).attr("text-anchor", "middle").style("fill", "#64748b").style("font-size", "14px").style("font-weight", "bold").text("上游");
-labelLayer.append("text").attr("x", "50%").attr("y", window.innerHeight - 20).attr("text-anchor", "middle").style("fill", "#64748b").style("font-size", "14px").style("font-weight", "bold").text("中游");
-labelLayer.append("text").attr("x", "85%").attr("y", window.innerHeight - 20).attr("text-anchor", "middle").style("fill", "#64748b").style("font-size", "14px").style("font-weight", "bold").text("下游");
+labelLayer.selectAll("text").data(TIER_LABELS).enter().append("text")
+    .attr("x", d => width * d[2]).attr("y", height - 20).attr("text-anchor", "middle")
+    .style("fill", "#64748b").style("font-size", "14px").style("font-weight", "bold").text(d => d[1]);
+function placeTierLabels(centers) {
+    labelLayer.selectAll("text").attr("y", height - 20)
+        .attr("x", d => centers ? centers[d[0]] ?? 0 : width * d[2])
+        .style("display", d => !centers || d[0] in centers ? null : "none");
+}
 
 // 供應關係線箭頭
 svg.append("defs").append("marker").attr("id", "supply-arrow").attr("viewBox", "0 0 10 10")
@@ -41,8 +47,10 @@ function focusArea() {
 function layoutNodes() {
     if (!currentFocusedIndustry) {
         focusLayout = { scale: 1, label: "full" };
-        const plan = Layout.overviewPlan(nodes, width, height);
+        // 下緣多留 30px，最下面的節點名稱才不會被左下角「資料更新至」蓋住
+        const plan = Layout.overviewPlan(nodes, width, height, 100, 80);
         overviewScale = plan.scale;
+        placeTierLabels(plan.centers);
         nodes.forEach(n => {
             const p = plan.positions.get(n.id);
             if (!p) return;
@@ -51,6 +59,7 @@ function layoutNodes() {
         });
         return;
     }
+    placeTierLabels(null);
     const [center, ...companies] = nodes;
     const area = focusArea();
     center.tx = center.fx = area.x + area.w / 2;
@@ -72,13 +81,7 @@ function relayout(alpha = 0.5) {
 function handleResize() {
     width = window.innerWidth; height = window.innerHeight;
     svg.attr("width", width).attr("height", height);
-    // 💡 更新底部標籤位置
-    labelLayer.selectAll("text").attr("y", height - 20).attr("x", (d, i) => {
-        if (i === 0) return width * 0.15;
-        if (i === 1) return width * 0.5;
-        return width * 0.85;
-    });
-    relayout(0.3);
+    relayout(0.3);   // 底部層級標籤在 layoutNodes 裡跟著重排
 }
 window.addEventListener("resize", handleResize);
 
@@ -511,7 +514,9 @@ function update() {
     });
 
     const text = nodeEnter.append("text").attr("class", "label").attr("text-anchor", "middle").attr("dy", d => getRadius(d) + 25);
-    text.append("tspan").attr("x", 0).attr("class", "label-name").text(d => d.name);
+    // 產業節點名稱太長（如「印表機、傳真機、…投影機」）會壓到鄰居：超過 12 字截短，完整名稱在右上角說明
+    text.append("tspan").attr("x", 0).attr("class", "label-name")
+        .text(d => d.type === "industry" && d.name.length > 12 ? d.name.slice(0, 11) + "…" : d.name);
     text.append("tspan").attr("x", 0).attr("dy", "1.2em").attr("class", "label-price");
     // 公司球右上角除權息標籤、左上角訊號星點（加在名稱文字之後，tick 的 select("text") 仍取到名稱）
     nodeEnter.filter(d => d.type === "company").each(function () {
