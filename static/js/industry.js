@@ -576,6 +576,12 @@ Common.mountSearch(document.getElementById("search-input"), document.getElementB
     const TIER_LABEL = { Upstream: "上游", Midstream: "中游", Downstream: "下游" };
     const st = { range: "3M", mode: "industry", nodes: new Set(), seq: 0, listed: false };
 
+    // 固定兩行註記：載入中、錯誤、無資料時都要在，load() 不會清掉
+    [Trend.MARKET_NOTE, Trend.SURVIVOR_NOTE].forEach(t => {
+        const e = document.createElement("div"); e.textContent = t;
+        document.getElementById("trend-notes-fixed").appendChild(e);
+    });
+
     function setMsg(text, isError) {
         const m = document.getElementById("trend-msg");
         m.textContent = text || ""; m.className = isError ? "error" : ""; m.style.display = text ? "block" : "none";
@@ -613,7 +619,6 @@ Common.mountSearch(document.getElementById("search-input"), document.getElementB
         const box = document.getElementById("trend-notes");
         box.innerHTML = "";
         const add = (t, cls) => { const e = document.createElement("div"); e.textContent = t; if (cls) e.className = cls; box.appendChild(e); };
-        add(d.notes.market); add(d.notes.survivor);
         if ((d.changed || []).some(k => keys.includes(k))) add("成分已變動，指數為舊名單", "warn");
         const note = Trend.firstDateNote(d.first_date, Trend.rangeStart(st.range));
         if (note) add(note);

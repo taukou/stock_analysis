@@ -3,6 +3,9 @@
   const RANGES = { "1M": 21, "3M": 63, "6M": 126, "1Y": 250 };   // 交易日數（同 industry_trends.RANGES）
   const TIERS = ["Upstream", "Midstream", "Downstream"];
   const MAX_NODES = 5;
+  // 固定註記：與 industry_trends.MARKET_NOTE / SURVIVOR_NOTE 逐字相同（tests 會比對）；不依賴 API 回應
+  const MARKET_NOTE = "此為自行計算的等權大盤（上市＋上櫃，排除 ETF，已還原除權息），與證交所公布的加權指數不同";
+  const SURVIVOR_NOTE = "成分股以目前名單往回計算，不含已下市公司";
 
   // 要向 /api/index_series 要的 key：大盤＋產業（或三層）＋最多 5 個節點
   function seriesKeys(majorId, mode, nodeIds) {
@@ -105,12 +108,12 @@
       .style("gap", "4px 12px").style("margin-top", "6px").style("font-size", "11px");
     lines.forEach((s, i) => {
       const item = legend.append("span").style("color", "var(--text-2)");
-      if (s.dashed && opts.marketNote) item.attr("title", opts.marketNote).style("cursor", "help");
+      if (s.dashed && (opts.marketNote || MARKET_NOTE)) item.attr("title", (opts.marketNote || MARKET_NOTE)).style("cursor", "help");
       item.append("span").text(s.dashed ? "┅ " : "━ ").style("color", color(s, i));
       item.append("span").text(s.label);
     });
   }
 
-  const api = { RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart };
+  const api = { MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Trend = api;
 })(typeof window !== "undefined" ? window : globalThis);

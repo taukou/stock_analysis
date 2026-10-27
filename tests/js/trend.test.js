@@ -23,3 +23,17 @@ test("range start estimate and tier filtering", () => {
   assert.deepStrictEqual(T.visibleKeys(T.seriesKeys("M02", "tiers", []), have),
     ["market:TW", "tier:M02:Upstream", "tier:M02:Downstream"]);
 });
+
+test("fixed notes equal the python constants and stay out of the cleared node", () => {
+  const fs = require("node:fs");
+  const py = fs.readFileSync(require("node:path").join(__dirname, "../../industry_trends.py"), "utf8");
+  const get = n => py.match(new RegExp(`^${n} = "(.*)"`, "m"))[1];
+  assert.strictEqual(T.MARKET_NOTE, get("MARKET_NOTE"));
+  assert.strictEqual(T.SURVIVOR_NOTE, get("SURVIVOR_NOTE"));
+  // 固定註記在獨立節點；load() 只清動態節點 #trend-notes，成功、無資料、錯誤三種狀態都不影響它
+  const js = fs.readFileSync(require("node:path").join(__dirname, "../../static/js/industry.js"), "utf8");
+  assert.ok(/trend-notes-fixed/.test(js));
+  assert.ok(!/trend-notes-fixed[^\n]*innerHTML\s*=/.test(js));
+  const html = fs.readFileSync(require("node:path").join(__dirname, "../../templates/industry_d3.html"), "utf8");
+  assert.ok(html.includes('id="trend-notes-fixed"'));
+});
