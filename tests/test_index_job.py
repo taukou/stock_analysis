@@ -139,3 +139,64 @@ def test_registered_scope_without_last_row_resumes_from_own_last_row():
     s.mapping = _mapping()
     sync_index(s, NOW)
     assert ("node", "N1", D4) in s.tables["industry_index_daily"]
+
+
+def test_late_ex_rights_fixed_on_next_run():
+    """除權息資料晚一天才進來：下一次執行要重算那天與之後所有點位（不能留假跌）。"""
+    s = FakeStore()
+    _seed(s)
+    del s.tables["ex_rights"]
+    sync_index(s, NOW)
+    assert _row(s, "node", "N1", D3)["ret_pct"] == pytest.approx(0.0)   # 少了參考價
+    _q(s, "1111", D4, 12.1)
+    _q(s, "2222", D4, 19.8)
+    s.tables["ex_rights"] = {("2222", D3): {"stock_id": "2222", "ex_date": D3, "ref_price": 15}}
+    r = sync_index(s, NOW)
+    assert r.status == "ok" and r.last_date == D4
+    for key in (MKT, ("node", "N1"), ("major", "M1"), ("tier", "M1:up")):
+        assert _row(s, *key, D3)["ret_pct"] == pytest.approx(10.0)
+        assert _row(s, *key, D3)["level"] == pytest.approx(110.0)
+        assert _row(s, *key, D4)["level"] == pytest.approx(121.0)
+
+
+def test_rerun_without_new_data_is_idempotent():
+    s = FakeStore()
+    _seed(s)
+    _q(s, "1111", D4, 12.1)
+    _q(s, "2222", D4, 19.8)
+    sync_index(s, NOW)
+    before = {k: dict(v) for k, v in s.tables["industry_index_daily"].items()}
+    r = sync_index(s, NOW)
+    assert r.status == "ok" and r.rows == 0 and r.last_date == D4
+    assert s.tables["industry_index_daily"] == before
+
+
+def test_recompute_window_limited_to_lookback_trading_days():
+    """只重算最近 LOOKBACK 個交易日；更早的列沿用資料庫既有點位。"""
+    s = FakeStore()
+    s.mapping = _mapping()
+    days = [f"2026-09-{d:02d}" for d in range(1, 31)]
+    for i, d in enumerate(days):
+        _q(s, "1111", d, 10 + i)
+        _q(s, "2222", d, 20 + i)
+    sync_index(s, datetime(2026, 9, 30, 18))
+    anchor = days[-index_job.LOOKBACK - 1]
+    s.tables["industry_index_daily"][("node", "N1", anchor)]["level"] = 500.0
+    old = days[-index_job.LOOKBACK - 2]
+    s.tables["industry_index_daily"][("node", "N1", old)]["level"] = 999.0
+    sync_index(s, datetime(2026, 9, 30, 18))
+    assert _row(s, "node", "N1", old)["level"] == 999.0
+    assert _row(s, "node", "N1", anchor)["level"] == 500.0
+    nxt = _row(s, "node", "N1", days[-index_job.LOOKBACK])
+    assert nxt["level"] == pytest.approx(500.0 * (1 + nxt["ret_pct"] / 100), rel=1e-6)
+
+
+def test_new_dates_without_anchor_quotes_returns_failed():
+    s = FakeStore()
+    _seed(s)
+    sync_index(s, NOW)
+    del s.tables["daily_quotes"]
+    _q(s, "1111", D4, 12)
+    _q(s, "2222", D4, 18)
+    r = sync_index(s, NOW)
+    assert r.status == "failed"
