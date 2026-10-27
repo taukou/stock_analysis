@@ -336,3 +336,42 @@ def test_node_flows_counts_only_present(client, monkeypatch):
     d = client.get("/api/node_flows/M02?period=5").get_json()
     assert d["flow_date"] == "2026-10-22"
     assert d["nodes"] == [{"node_id": "N1", "foreign_lots": 4, "trust_lots": 1, "count": 1}]
+
+
+# ===== 每日摘要頁 =====
+def test_daily_page_renders_with_note(client, monkeypatch):
+    from industry_trends import MARKET_NOTE
+    snap = {"latest_date": "2026-10-22", "flow_date": "2026-10-22",
+            "returns": {"2330": {1: 2.0}, "2303": {1: -1.0}},
+            "flows": {"2330": {1: {"foreign": 5000, "trust": None}}},
+            "signals": {"2330": [{"code": "trust_streak", "label": "投信連買 5 日", "detail": "x"}]}}
+    idx = _index({"major:M01": _pts(5), "market:TW": _pts(5)},
+                 members={("node", "N1"): frozenset({"2330", "2303"})},
+                 mapping=[{"node_id": "N1", "stock_id": "2330", "major_id": "M01", "position_type": "Midstream"},
+                          {"node_id": "N1", "stock_id": "2303", "major_id": "M01", "position_type": "Midstream"}])
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(snap))
+    _patch_index(monkeypatch, idx)
+    monkeypatch.setattr(app_module, "get_all_industries", lambda: [{"major_id": "M01", "major_name": "半導體"}])
+    monkeypatch.setattr(app_module, "fetch_industry_nodes", lambda m: [{"node_id": "N1", "node_name": "晶圓代工"}])
+    monkeypatch.setattr(app_module, "fetch_companies", lambda ids: [{"stock_id": "2330", "company_name": "台積電"}])
+    monkeypatch.setattr(app_module, "fetch_sync_runs", lambda: [])
+    res = client.get("/daily")
+    html = res.get_data(as_text=True)
+    assert res.status_code == 200
+    assert MARKET_NOTE in html and "半導體" in html and "晶圓代工" in html and "台積電" in html
+    assert "法人資料至 2026-10-22" in html
+
+
+def test_daily_page_shows_message_when_data_unavailable(client, monkeypatch):
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(err=RuntimeError("down")))
+    _patch_index(monkeypatch, err=RuntimeError("no table"))
+    monkeypatch.setattr(app_module, "fetch_sync_runs", lambda: [])
+    res = client.get("/daily")
+    assert res.status_code == 200 and "資料暫時無法讀取" in res.get_data(as_text=True)
+
+
+def test_home_has_ranking_and_rotation_sections(client):
+    html = client.get("/").get_data(as_text=True)
+    for label, href in [("產業排行", "#ranking"), ("輪動", "#rotation"), ("今日摘要", "/daily")]:
+        assert f'href="{href}"' in html and f">{label}</a>" in html
+    assert 'id="ranking"' in html and 'id="rotation"' in html

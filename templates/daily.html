@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>今日摘要 · 股市產業鏈</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='glass.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font); color: var(--text-1); min-height: 100vh;
+            background:
+                radial-gradient(60% 50% at 25% 20%, rgba(115, 191, 196, 0.30), transparent 70%),
+                radial-gradient(50% 45% at 78% 70%, rgba(255, 129, 10, 0.20), transparent 70%),
+                radial-gradient(45% 40% at 60% 15%, rgba(141, 160, 206, 0.26), transparent 70%),
+                #05070f;
+            background-attachment: fixed;
+        }
+        .top-bar { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
+                   display: flex; align-items: center; gap: 18px; padding: 10px 22px; white-space: nowrap; }
+        .top-bar a { color: var(--text-2); text-decoration: none; }
+        .top-bar a:hover { color: var(--text-1); }
+        .top-bar .cur { color: var(--text-1); font-weight: 600; }
+        main { max-width: 900px; margin: 0 auto; padding: 100px 16px 40px; }
+        h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); text-align: center; margin-bottom: 8px; }
+        .sub { text-align: center; color: var(--text-2); margin-bottom: 32px; font-size: 0.9rem; }
+        .card { border-radius: var(--radius-m); padding: 20px 22px; margin-bottom: 20px; }
+        .card h2 { font-size: 1.1rem; margin-bottom: 12px; }
+        .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 32px; }
+        .cols h3 { font-size: 0.85rem; color: var(--text-2); font-weight: 500; margin-bottom: 6px; }
+        .item { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-variant-numeric: tabular-nums; }
+        .item a { color: var(--text-1); text-decoration: none; }
+        .item a:hover { text-decoration: underline; }
+        .item small { color: var(--text-3); margin-left: 6px; }
+        .up { color: var(--up); } .down { color: var(--down); }
+        .note { color: var(--text-3); font-size: 0.8rem; line-height: 1.6; margin-top: 10px; }
+        .empty { text-align: center; color: var(--text-2); padding: 40px 0; }
+        .none { color: var(--text-3); font-size: 0.85rem; }
+        @media (max-width: 600px) { .cols { grid-template-columns: 1fr; } .top-bar { gap: 10px; padding: 8px 14px; } }
+    </style>
+</head>
+<body>
+    {% include '_glass_filter.html' %}
+    {% macro chg(v) -%}
+        {%- if v is none -%}<span class="none">—</span>
+        {%- else -%}<span class="{{ 'up' if v > 0 else ('down' if v < 0 else '') }}">{{ '%+.2f' % v }}%</span>{%- endif -%}
+    {%- endmacro %}
+    {% macro lots(v) -%}
+        {%- if v is none -%}<span class="none">—</span>
+        {%- else -%}<span class="{{ 'up' if v > 0 else ('down' if v < 0 else '') }}">{{ '{:+,}'.format(v) }} 張</span>{%- endif -%}
+    {%- endmacro %}
+
+    <nav class="top-bar glass glass-pill refract" aria-label="主要導覽">
+        <a href="/">首頁</a>
+        <a href="/daily" class="cur" aria-current="page">今日摘要</a>
+    </nav>
+    <div id="freshness" class="glass glass-pill" role="status">{{ freshness }}</div>
+
+    <main>
+        <h1>今日摘要</h1>
+        {% if digest is none %}
+        <p class="empty">資料暫時無法讀取</p>
+        {% else %}
+        <p class="sub">股價資料 {{ latest_date or '—' }}</p>
+
+        <section class="card glass">
+            <h2>強弱產業</h2>
+            <div class="cols">
+                <div><h3>最強 3</h3>
+                    {% for m in digest.strong_majors %}
+                    <div class="item"><a href="/industry/{{ m.major_id }}">{{ m.name }}</a>{{ chg(m.r1) }}</div>
+                    {% else %}<p class="none">無資料</p>{% endfor %}
+                </div>
+                <div><h3>最弱 3</h3>
+                    {% for m in digest.weak_majors %}
+                    <div class="item"><a href="/industry/{{ m.major_id }}">{{ m.name }}</a>{{ chg(m.r1) }}</div>
+                    {% else %}<p class="none">無資料</p>{% endfor %}
+                </div>
+            </div>
+            <p class="note" title="{{ MARKET_NOTE }}">產業漲跌為自行計算的產業指數單日變化。{{ MARKET_NOTE }}</p>
+        </section>
+
+        <section class="card glass">
+            <h2>強弱節點</h2>
+            <div class="cols">
+                <div><h3>最強 5</h3>
+                    {% for n in digest.strong_nodes %}
+                    <div class="item"><span><a href="/industry/{{ n.major_id }}">{{ n.name }}</a><small>{{ n.major_name }}</small></span>{{ chg(n.change) }}</div>
+                    {% else %}<p class="none">無資料</p>{% endfor %}
+                </div>
+                <div><h3>最弱 5</h3>
+                    {% for n in digest.weak_nodes %}
+                    <div class="item"><span><a href="/industry/{{ n.major_id }}">{{ n.name }}</a><small>{{ n.major_name }}</small></span>{{ chg(n.change) }}</div>
+                    {% else %}<p class="none">無資料</p>{% endfor %}
+                </div>
+            </div>
+            <p class="note">節點漲跌為成分股當日漲跌的平均（缺值不計）。</p>
+        </section>
+
+        <section class="card glass">
+            <h2>法人買超節點</h2>
+            {% for n in digest.flow_nodes %}
+            <div class="item"><span><a href="/industry/{{ n.major_id }}">{{ n.name }}</a><small>{{ n.major_name }}</small></span>
+                <span>外資 {{ lots(n.foreign_lots) }} · 投信 {{ lots(n.trust_lots) }}</span></div>
+            {% else %}<p class="none">無資料</p>{% endfor %}
+            <p class="note">依外資＋投信當日淨買超（張）排序；法人資料至 {{ flow_date or '—' }}。</p>
+        </section>
+
+        <section class="card glass">
+            <h2>個股訊號</h2>
+            {% for g in digest.signal_groups %}
+            <h3 style="font-size:.85rem;color:var(--text-2);font-weight:500;margin:10px 0 4px">{{ g.label }}（{{ g.companies | length }}）</h3>
+            {% for c in g.companies %}
+            <div class="item"><span><a href="/industry/{{ c.major_id }}">{{ c.name }}</a><small>{{ c.stock_id }}</small></span><small>{{ c.detail }}</small></div>
+            {% endfor %}
+            {% else %}<p class="none">今日無訊號</p>{% endfor %}
+        </section>
+        {% endif %}
+    </main>
+</body>
+</html>

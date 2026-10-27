@@ -137,6 +137,80 @@
     return `${sign}${Math.abs(Math.round(v)).toLocaleString("en-US")} 張`;
   }
 
-  const api = { MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart, relativeRanks, formatLots };
+  // 排行表排序：null 一律排最後（不論升降冪）；回傳新陣列
+  function sortRows(rows, key, desc) {
+    const dir = desc ? -1 : 1;
+    return (rows || []).slice().sort((a, b) => {
+      const x = a[key], y = b[key];
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;
+      if (y == null) return -1;
+      return x < y ? -dir : (x > y ? dir : 0);
+    });
+  }
+
+  const QUAD_LABELS = [["領先", 1, 1], ["轉弱", 1, 0], ["落後", 0, 0], ["轉強", 0, 1]];   // [名稱, 右側?, 上方?]
+
+  // 輪動圖（RRG）：points = [{major_id,name,x,y,quadrant,trail:[{date,x,y}]}]；中心 (100,100)，軌跡由舊到新
+  function rotationChart(container, points, notes) {
+    const el = typeof container === "string" ? document.querySelector(container) : container;
+    el.innerHTML = "";
+    const note = (notes && notes.market) || MARKET_NOTE;
+    if (!points || !points.length) {
+      el.textContent = "指數資料不足 60 個交易日，暫無輪動圖";
+      return;
+    }
+    const w = Math.max(el.clientWidth || 600, 280), h = Math.min(Math.max(w * 0.7, 320), 520);
+    const M = { top: 14, right: 16, bottom: 40, left: 46 };
+    const all = points.flatMap(p => [{ x: p.x, y: p.y }].concat(p.trail || []));
+    const span = (get) => Math.max(1, ...all.map(a => Math.abs(get(a) - 100))) * 1.15;
+    const dx = span(a => a.x), dy = span(a => a.y);
+    const x = d3.scaleLinear().domain([100 - dx, 100 + dx]).range([M.left, w - M.right]);
+    const y = d3.scaleLinear().domain([100 - dy, 100 + dy]).range([h - M.bottom, M.top]);
+    const svg = d3.select(el).append("svg").attr("width", w).attr("height", h).style("display", "block");
+    const axisStyle = g => {
+      g.selectAll("text").style("fill", "var(--text-2)").style("font-size", "10px");
+      g.selectAll("path, line").style("stroke", "var(--text-3)");
+    };
+    axisStyle(svg.append("g").attr("transform", `translate(0,${h - M.bottom})`).call(d3.axisBottom(x).ticks(5).tickSize(3)));
+    axisStyle(svg.append("g").attr("transform", `translate(${M.left},0)`).call(d3.axisLeft(y).ticks(5).tickSize(3)));
+    // 十字中線
+    svg.append("line").attr("x1", x(100)).attr("x2", x(100)).attr("y1", M.top).attr("y2", h - M.bottom)
+      .style("stroke", "var(--text-3)").style("stroke-dasharray", "3 3");
+    svg.append("line").attr("y1", y(100)).attr("y2", y(100)).attr("x1", M.left).attr("x2", w - M.right)
+      .style("stroke", "var(--text-3)").style("stroke-dasharray", "3 3");
+    // 四象限標字
+    QUAD_LABELS.forEach(([name, right, top]) => {
+      svg.append("text").text(name)
+        .attr("x", right ? w - M.right - 6 : M.left + 6).attr("y", top ? M.top + 14 : h - M.bottom - 8)
+        .attr("text-anchor", right ? "end" : "start")
+        .style("fill", "var(--text-3)").style("font-size", "13px").style("font-weight", "600");
+    });
+    // 軸標題（附 MARKET_NOTE）
+    const xt = svg.append("text").text("相對大盤強弱").attr("x", (M.left + w - M.right) / 2).attr("y", h - 8)
+      .attr("text-anchor", "middle").style("fill", "var(--text-2)").style("font-size", "12px").style("cursor", "help");
+    xt.append("title").text(note);
+    const yt = svg.append("text").text("強弱變化速度").attr("transform", `translate(12,${(M.top + h - M.bottom) / 2}) rotate(-90)`)
+      .attr("text-anchor", "middle").style("fill", "var(--text-2)").style("font-size", "12px").style("cursor", "help");
+    yt.append("title").text(note);
+
+    points.forEach((p, i) => {
+      const c = COLORS[i % COLORS.length];
+      const g = svg.append("g");
+      const trail = (p.trail || []).concat([{ date: null, x: p.x, y: p.y }]);
+      g.append("path").datum(trail).attr("fill", "none").attr("stroke", c).attr("stroke-width", 1.5).attr("opacity", 0.55)
+        .attr("d", d3.line().x(t => x(t.x)).y(t => y(t.y)));
+      g.append("circle").attr("cx", x(p.x)).attr("cy", y(p.y)).attr("r", 5).attr("fill", c)
+        .append("title").text(`${p.name}（${p.quadrant}）x=${p.x} y=${p.y}`);
+      g.append("text").text(p.name).attr("x", x(p.x) + 8).attr("y", y(p.y) + 4)
+        .style("fill", "var(--text-1)").style("font-size", "11px");
+    });
+    const small = document.createElement("p");
+    small.className = "chart-note";
+    small.textContent = note;
+    el.appendChild(small);
+  }
+
+  const api = { sortRows, rotationChart, MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart, relativeRanks, formatLots };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Trend = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -52,3 +52,10 @@ test("formatLots", () => {
   assert.strictEqual(T.formatLots(1234), "+1,234 張");
   assert.strictEqual(T.formatLots(-5), "-5 張");
 });
+
+test("sortRows puts null last in both directions", () => {
+  const rows = [{ k: 2 }, { k: null }, { k: 5 }, { k: -1 }];
+  assert.deepStrictEqual(T.sortRows(rows, "k", true).map(r => r.k), [5, 2, -1, null]);
+  assert.deepStrictEqual(T.sortRows(rows, "k", false).map(r => r.k), [-1, 2, 5, null]);
+  assert.strictEqual(rows[0].k, 2);   // 不改動原陣列
+});

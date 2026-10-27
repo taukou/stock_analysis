@@ -109,3 +109,37 @@ def flow_totals(flow_sums: dict, members: Iterable[str], n: int) -> dict:
         if t is not None:
             tr = (tr or 0) + t
     return {"foreign_lots": to_lots(fo), "trust_lots": to_lots(tr), "count": count}
+
+
+SIGNAL_ORDER = (("trust_streak", "投信連買"), ("yoy_turn", "營收年增轉正"),
+                ("revenue_high", "營收創高"), ("volume_spike", "爆量"))
+
+
+def daily_digest(majors: list[dict], nodes: list[dict], node_flows: list[dict],
+                 signal_companies: list[dict]) -> dict:
+    """每日摘要：強弱產業（前／後 3）、強弱節點（前／後 5）、法人淨買節點（前 5）與訊號分組；缺值不列入排名。"""
+    def ranked(rows, key):
+        return sorted((r for r in rows if r.get(key) is not None), key=lambda r: r[key], reverse=True)
+
+    rm = ranked(majors, "r1")
+    rn = ranked(nodes, "change")
+    flow_nodes = []
+    for f in node_flows:
+        vals = [v for v in (f.get("foreign_lots"), f.get("trust_lots")) if v is not None]
+        if vals:
+            flow_nodes.append({**f, "net": sum(vals)})
+    flow_nodes.sort(key=lambda r: r["net"], reverse=True)
+    groups = []
+    for code, label in SIGNAL_ORDER:
+        companies = []
+        for c in signal_companies:
+            for s in c.get("signals") or []:
+                if s.get("code") == code:
+                    companies.append({"stock_id": c["stock_id"], "name": c["name"], "node_id": c.get("node_id"),
+                                      "major_id": c.get("major_id"), "label": s.get("label"),
+                                      "detail": s.get("detail")})
+        if companies:
+            groups.append({"code": code, "label": label, "companies": companies})
+    return {"strong_majors": rm[:3], "weak_majors": rm[::-1][:3],
+            "strong_nodes": rn[:5], "weak_nodes": rn[::-1][:5],
+            "flow_nodes": flow_nodes[:5], "signal_groups": groups}

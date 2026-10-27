@@ -177,6 +177,25 @@
         .watch-row .flat { color: var(--text-3); }
         .empty-note { text-align: center; color: var(--text-2); }
 
+        /* 產業排行與輪動：單一玻璃容器，內部為一般內容 */
+        .trend-section { max-width: 1000px; margin: 0 auto; padding: 40px 16px 60px; scroll-margin-top: 80px; }
+        .trend-box { border-radius: var(--radius-m); padding: 16px 18px; overflow-x: auto; }
+        .rank-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+        .rank-table th, .rank-table td { padding: 10px 12px; text-align: right; white-space: nowrap; }
+        .rank-table th:first-child, .rank-table td:first-child { text-align: left; }
+        .rank-table th { color: var(--text-2); font-weight: 500; font-size: 0.85rem; cursor: pointer; user-select: none; }
+        .rank-table th:hover { color: var(--text-1); }
+        .rank-table tbody tr:hover { background: rgba(255, 255, 255, 0.08); }
+        .rank-table tr.market-row td { color: var(--text-2); font-size: 0.9rem; }
+        .rank-table a { color: var(--text-1); text-decoration: none; }
+        .rank-table a:hover { text-decoration: underline; }
+        .rank-table .up { color: var(--up); } .rank-table .down { color: var(--down); }
+        .rank-table .none { color: var(--text-3); }
+        .chart-note, .trend-note { color: var(--text-3); font-size: 0.8rem; line-height: 1.6; margin-top: 10px; }
+        .trend-msg { text-align: center; color: var(--text-2); padding: 24px 0; }
+        .nav-link { padding: 6px 14px; color: var(--text-2); text-decoration: none; }
+        .nav-link:hover { color: var(--text-1); }
+
         footer {
             text-align: center;
             color: var(--text-3);
@@ -210,6 +229,9 @@
             <a class="nav-tab" href="#top" data-target="top">首頁</a>
             <a class="nav-tab" href="#watchlist" data-target="watchlist" hidden>自選股</a>
             <a class="nav-tab" href="#industries" data-target="industries">產業列表</a>
+            <a class="nav-tab" href="#ranking" data-target="ranking">產業排行</a>
+            <a class="nav-tab" href="#rotation" data-target="rotation">輪動</a>
+            <a class="nav-link" href="/daily">今日摘要</a>
         </div>
         <input id="search-input" class="search-input" type="search" placeholder="搜尋代號／名稱" aria-label="搜尋公司" autocomplete="off">
     </nav>
@@ -246,10 +268,24 @@
             </div>
         </section>
 
+        <section class="trend-section" id="ranking">
+            <h2 class="section-title">產業排行</h2>
+            <p class="section-sub">點欄位標題排序，點產業名進入產業頁</p>
+            <div class="trend-box glass" id="ranking-box"><p class="trend-msg">載入中…</p></div>
+        </section>
+
+        <section class="trend-section" id="rotation">
+            <h2 class="section-title">產業輪動</h2>
+            <p class="section-sub">各產業相對大盤的強弱與變化速度（含近 8 週軌跡）</p>
+            <div class="trend-box glass" id="rotation-box"><p class="trend-msg">載入中…</p></div>
+        </section>
+
         <footer>股市產業鏈分析系統 © 2026 · 資料來源：證交所、櫃買中心、公開資訊觀測站</footer>
     </main>
 
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="{{ url_for('static', filename='js/format.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/trend.js') }}"></script>
     <script src="{{ url_for('static', filename='js/common.js') }}"></script>
     <script>
         Common.mountFreshness(document.getElementById('freshness'));
@@ -308,6 +344,60 @@
                     }
                 })
                 .catch(err => console.warn('自選股載入失敗', err));
+        })();
+
+        // 產業排行：/api/industry_ranking；503 或失敗顯示提示
+        (function () {
+            const box = document.getElementById('ranking-box');
+            const COLS = [['name', '產業'], ['r1', '今日'], ['r5', '5 日'], ['r20', '20 日'], ['foreign5', '外資 5 日'], ['trust5', '投信 5 日']];
+            let state = { key: 'r1', desc: true }, data = null;
+            const pct = v => v == null ? ['none', '—'] : [v > 0 ? 'up' : (v < 0 ? 'down' : ''), (v > 0 ? '+' : '') + v.toFixed(2) + '%'];
+            const lots = v => v == null ? ['none', '—'] : [v > 0 ? 'up' : (v < 0 ? 'down' : ''), Trend.formatLots(v)];
+            function td(tr, cls, text) { const c = document.createElement('td'); c.className = cls; c.textContent = text; tr.appendChild(c); return c; }
+            function render() {
+                box.replaceChildren();
+                const table = document.createElement('table'); table.className = 'rank-table';
+                const head = table.createTHead().insertRow();
+                COLS.forEach(([key, label]) => {
+                    const th = document.createElement('th');
+                    th.textContent = label + (state.key === key ? (state.desc ? ' ▼' : ' ▲') : '');
+                    th.addEventListener('click', () => {
+                        state = { key, desc: state.key === key ? !state.desc : key !== 'name' };
+                        render();
+                    });
+                    head.appendChild(th);
+                });
+                const body = table.createTBody();
+                const mk = body.insertRow(); mk.className = 'market-row';
+                const mcell = td(mk, '', '大盤'); mcell.title = Trend.MARKET_NOTE; mcell.style.cursor = 'help';
+                [['r1'], ['r5'], ['r20']].forEach(([k]) => { const [c, t] = pct(data.market[k]); td(mk, c, t); });
+                td(mk, 'none', '—'); td(mk, 'none', '—');
+                Trend.sortRows(data.rows, state.key, state.desc).forEach(r => {
+                    const tr = body.insertRow();
+                    const first = td(tr, '', '');
+                    const a = document.createElement('a'); a.href = '/industry/' + encodeURIComponent(r.major_id); a.textContent = r.name;
+                    first.appendChild(a);
+                    ['r1', 'r5', 'r20'].forEach(k => { const [c, t] = pct(r[k]); td(tr, c, t); });
+                    ['foreign5', 'trust5'].forEach(k => { const [c, t] = lots(r[k]); td(tr, c, t); });
+                });
+                box.appendChild(table);
+                const note = document.createElement('p'); note.className = 'trend-note';
+                note.textContent = Trend.MARKET_NOTE + '。法人資料至 ' + (data.flow_date || '—') + '。';
+                box.appendChild(note);
+            }
+            fetch('/api/industry_ranking')
+                .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+                .then(d => { data = d; render(); })
+                .catch(err => { console.warn('產業排行載入失敗', err); box.innerHTML = '<p class="trend-msg">資料暫時無法讀取</p>'; });
+        })();
+
+        // 輪動圖：/api/rotation
+        (function () {
+            const box = document.getElementById('rotation-box');
+            fetch('/api/rotation')
+                .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+                .then(d => Trend.rotationChart(box, d.points, d.notes))
+                .catch(err => { console.warn('輪動圖載入失敗', err); box.innerHTML = '<p class="trend-msg">資料暫時無法讀取</p>'; });
         })();
 
         // 隨捲動讓背景漸暗（第一屏捲完時達到最暗），用 rAF 節流

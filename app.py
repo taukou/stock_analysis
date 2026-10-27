@@ -13,7 +13,7 @@ from freshness import freshness
 import index_data
 from index_data import index_cache
 from industry_trends import (
-    MARKET_NOTE, RANGES, SURVIVOR_NOTE, flow_totals, key_str, period_change, rebase, rrg, to_lots,
+    MARKET_NOTE, RANGES, SURVIVOR_NOTE, daily_digest, flow_totals, key_str, period_change, rebase, rrg, to_lots,
 )
 from snapshot import snapshot_cache
 from sync.parse import months_back
@@ -45,6 +45,66 @@ def industry_view(major_id):
         names = {}
     return render_template('industry_d3.html', major_id=major_id,
                            major_name=names.get(major_id, major_id))
+
+def build_daily_digest():
+    """組每日摘要所需資料；任何來源讀取失敗由呼叫端處理。"""
+    snap = get_snapshot_or_503()
+    idx = get_index_or_503()
+    industries = get_industries_or_503()
+    returns, flows, sigs = snap.get("returns") or {}, snap.get("flows") or {}, snap.get("signals") or {}
+    majors = [{"major_id": m["major_id"], "name": m["major_name"],
+               "r1": period_change(idx["series"].get(key_str("major", m["major_id"]), []), 1)}
+              for m in industries]
+    major_name = {m["major_id"]: m["major_name"] for m in industries}
+    mapping = idx["mapping"]
+    node_major = {}
+    for r in mapping:
+        node_major.setdefault(r["node_id"], r["major_id"])
+    node_names = {}
+    for mid in dict.fromkeys(node_major.values()):
+        for n in fetch_industry_nodes(mid):
+            node_names[n["node_id"]] = n["node_name"]
+    nodes, node_flows = [], []
+    for nid, mid in node_major.items():
+        members = idx["members"].get(("node", nid), ())
+        vals = [v for v in (returns.get(sid, {}).get(1) for sid in members) if v is not None]
+        name = node_names.get(nid, nid)
+        nodes.append({"node_id": nid, "name": name, "major_id": mid, "major_name": major_name.get(mid, mid),
+                      "change": round(sum(vals) / len(vals), 2) if vals else None})
+        ft = flow_totals(flows, members, 1)
+        node_flows.append({"node_id": nid, "name": name, "major_id": mid, "major_name": major_name.get(mid, mid),
+                           "foreign_lots": ft["foreign_lots"], "trust_lots": ft["trust_lots"]})
+    # 只列產業鏈公司（mapping 內）的訊號；每檔股票取第一個對應節點
+    first = {}
+    for r in mapping:
+        first.setdefault(r["stock_id"], r)
+    with_sig = [sid for sid in first if sigs.get(sid)]
+    try:
+        names = {c["stock_id"]: c["company_name"] for c in fetch_companies(with_sig)} if with_sig else {}
+    except Exception:
+        app.logger.exception("公司名稱讀取失敗，改顯示代號")
+        names = {}
+    signal_companies = [{"stock_id": sid, "name": names.get(sid, sid), "node_id": first[sid]["node_id"],
+                         "major_id": first[sid]["major_id"], "signals": sigs[sid]}
+                        for sid in with_sig]
+    return daily_digest(majors, nodes, node_flows, signal_companies), snap
+
+
+@app.route('/daily')
+def daily_view():
+    """每日摘要頁：強弱產業與節點、法人流向、個股訊號；資料讀不到時顯示提示而非 500。"""
+    try:
+        fresh = freshness(fetch_sync_runs(), datetime.now())["message"]
+    except Exception:
+        app.logger.exception("新鮮度讀取失敗")
+        fresh = "資料狀態未知"
+    digest, snap = None, {}
+    try:
+        digest, snap = build_daily_digest()
+    except Exception:
+        app.logger.exception("每日摘要讀取失敗")
+    return render_template('daily.html', digest=digest, freshness=fresh, MARKET_NOTE=MARKET_NOTE,
+                           flow_date=snap.get("flow_date"), latest_date=snap.get("latest_date"))
 
 @app.route('/shader-test')
 def shader_test():

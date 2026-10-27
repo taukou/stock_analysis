@@ -42,3 +42,31 @@ def test_key_str_and_series_sorted_and_skip_none():
             {"scope_kind": "major", "scope_id": "M02", "trade_date": "2026-01-01", "level": 100.0},
             {"scope_kind": "major", "scope_id": "M02", "trade_date": "2026-01-03", "level": None}]
     assert t.series_by_key(rows) == {"major:M02": [("2026-01-01", 100.0), ("2026-01-02", 101.0)]}
+
+
+def test_digest_ranks_skip_none_and_group_signals():
+    d = t.daily_digest(
+        majors=[{"major_id": "M01", "name": "半導體", "r1": 1.0}, {"major_id": "M02", "name": "電腦", "r1": None},
+                {"major_id": "M03", "name": "通信", "r1": -2.0}],
+        nodes=[], node_flows=[{"node_id": "N1", "name": "a", "major_id": "M01", "foreign_lots": None, "trust_lots": None},
+                              {"node_id": "N2", "name": "b", "major_id": "M01", "foreign_lots": 10, "trust_lots": None}],
+        signal_companies=[{"stock_id": "2330", "name": "台積電", "node_id": "N1", "major_id": "M01",
+                           "signals": [{"code": "volume_spike", "label": "爆量", "detail": ""},
+                                       {"code": "trust_streak", "label": "投信連買 5 日", "detail": ""}]}])
+    assert [m["major_id"] for m in d["strong_majors"]] == ["M01", "M03"]
+    assert d["weak_majors"][0]["major_id"] == "M03"
+    assert [f["node_id"] for f in d["flow_nodes"]] == ["N2"]
+    assert [g["code"] for g in d["signal_groups"]] == ["trust_streak", "volume_spike"]
+    assert d["signal_groups"][0]["companies"][0]["stock_id"] == "2330"
+
+
+def test_digest_nodes_top_five_and_flow_net_sums_present_values():
+    nodes = [{"node_id": f"N{i}", "name": str(i), "major_id": "M01", "change": float(i)} for i in range(8)]
+    nodes.append({"node_id": "NX", "name": "x", "major_id": "M01", "change": None})
+    flows = [{"node_id": "A", "name": "a", "major_id": "M", "foreign_lots": 5, "trust_lots": 7},
+             {"node_id": "B", "name": "b", "major_id": "M", "foreign_lots": None, "trust_lots": 9}]
+    d = t.daily_digest([], nodes, flows, [])
+    assert [n["node_id"] for n in d["strong_nodes"]] == ["N7", "N6", "N5", "N4", "N3"]
+    assert [n["node_id"] for n in d["weak_nodes"]] == ["N0", "N1", "N2", "N3", "N4"]
+    assert [(f["node_id"], f["net"]) for f in d["flow_nodes"]] == [("A", 12), ("B", 9)]
+    assert d["signal_groups"] == []
