@@ -59,3 +59,11 @@ test("sortRows puts null last in both directions", () => {
   assert.deepStrictEqual(T.sortRows(rows, "k", false).map(r => r.k), [-1, 2, 5, null]);
   assert.strictEqual(rows[0].k, 2);   // 不改動原陣列
 });
+
+test("alerts: threshold, signals, ex today; null change ignored", () => {
+  const c = { latest_change: -6.2, signals: [{ label: "爆量" }], ex_today: "息" };
+  assert.deepStrictEqual(T.alertsFor(c, 5), ["大跌 -6.20%", "爆量", "今日除權息"]);
+  assert.deepStrictEqual(T.alertsFor({ latest_change: null, signals: [], ex_today: null }, 5), []);
+  assert.deepStrictEqual(T.alertsFor({ latest_change: 4.99, signals: [], ex_today: null }, 5), []);
+  assert.deepStrictEqual(T.alertsFor({ latest_change: 5, signals: [], ex_today: null }, 5), ["大漲 +5.00%"]);
+});

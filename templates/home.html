@@ -175,6 +175,18 @@
         .watch-row .up { color: var(--up); }
         .watch-row .down { color: var(--down); }
         .watch-row .flat { color: var(--text-3); }
+        .watch-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+        .watch-head .section-title { margin-bottom: 0; }
+        .alert-set { color: var(--text-2); font-size: 0.85rem; display: inline-flex; align-items: center; gap: 6px; }
+        .alert-set input { width: 64px; padding: 4px 8px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.25);
+            background: rgba(255, 255, 255, 0.08); color: var(--text-1); font: inherit; }
+        .watch-row { grid-template-areas: "id name price chg" ". tags tags tags"; }
+        .watch-row .wid { grid-area: id; } .watch-row .wname { grid-area: name; }
+        .watch-row .wprice { grid-area: price; } .watch-row .wchg { grid-area: chg; }
+        .watch-row .wtags { grid-area: tags; display: flex; flex-wrap: wrap; gap: 6px; }
+        .alert-tag { padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; color: var(--text-1);
+            background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.28);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
         .empty-note { text-align: center; color: var(--text-2); }
 
         /* 產業排行與輪動：單一玻璃容器，內部為一般內容 */
@@ -248,7 +260,10 @@
         </section>
 
         <section class="watchlist" id="watchlist" hidden>
-            <h2 class="section-title">自選股</h2>
+            <div class="watch-head">
+                <h2 class="section-title">自選股</h2>
+                <label class="alert-set">漲跌提醒門檻 ±<input type="number" id="alert-threshold" min="1" max="20" step="0.5" value="5">%</label>
+            </div>
             <div class="watch-box glass" id="watch-box"></div>
         </section>
 
@@ -315,9 +330,36 @@
             const box = document.getElementById('watch-box');
             const ids = Fmt.loadWatchlist(Fmt.safeStorage()).slice(0, 50);
             if (!ids.length) return;
+            // 提醒門檻：存 localStorage（讀不到用預設 5）；範圍 1–20
+            const thInput = document.getElementById('alert-threshold');
+            const readTh = () => {
+                try {
+                    const v = parseFloat(Fmt.safeStorage().getItem(Trend.THRESHOLD_KEY));
+                    return v >= 1 && v <= 20 ? v : 5;
+                } catch (e) { return 5; }
+            };
+            thInput.value = readTh();
+            let rowsCache = [];
+            const renderTags = () => {
+                const th = parseFloat(thInput.value) >= 1 && parseFloat(thInput.value) <= 20 ? parseFloat(thInput.value) : 5;
+                box.querySelectorAll('.watch-row').forEach(row => {
+                    const old = row.querySelector('.wtags'); if (old) old.remove();
+                    const alerts = Trend.alertsFor(byIdRow(row.dataset.id), th);
+                    if (!alerts.length) return;
+                    const t = document.createElement('span'); t.className = 'wtags';
+                    alerts.forEach(a => { const g = document.createElement('span'); g.className = 'alert-tag'; g.textContent = a; t.appendChild(g); });
+                    row.appendChild(t);
+                });
+            };
+            const byIdRow = id => rowsCache.find(r => r.stock_id === id) || {};
+            thInput.addEventListener('change', () => {
+                try { Fmt.safeStorage().setItem(Trend.THRESHOLD_KEY, String(thInput.value)); } catch (e) { /* 無法寫入就只在本頁生效 */ }
+                renderTags();
+            });
             fetch('/api/companies?ids=' + encodeURIComponent(ids.join(',')))
                 .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
                 .then(rows => {
+                    rowsCache = rows;
                     const byId = new Map(rows.map(r => [r.stock_id, r]));
                     ids.forEach(id => {
                         const r = byId.get(id);
@@ -325,6 +367,7 @@
                         const url = Common.searchUrl(r);
                         const row = document.createElement(url ? 'a' : 'div');
                         row.className = 'watch-row';
+                        row.dataset.id = r.stock_id;
                         if (url) row.href = url;
                         const cells = [
                             ['wid', r.stock_id],
@@ -339,6 +382,7 @@
                         });
                         box.appendChild(row);
                     });
+                    renderTags();
                     if (box.children.length) {
                         section.hidden = false;
                         document.querySelector('.nav-tab[data-target="watchlist"]').hidden = false;

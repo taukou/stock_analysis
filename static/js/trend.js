@@ -211,6 +211,19 @@
     el.appendChild(small);
   }
 
-  const api = { sortRows, rotationChart, MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart, relativeRanks, formatLots };
+  // 自選股提醒：漲跌幅達門檻、每個訊號、今日除權息；latest_change 為 null 不觸發漲跌
+  const THRESHOLD_KEY = "stockchain.alertThreshold";
+  function alertsFor(c, threshold) {
+    const out = [];
+    const ch = c.latest_change;
+    if (ch != null && Math.abs(ch) >= threshold) {
+      out.push(ch > 0 ? `大漲 +${ch.toFixed(2)}%` : `大跌 -${Math.abs(ch).toFixed(2)}%`);
+    }
+    (c.signals || []).forEach(s => out.push(s.label));
+    if (c.ex_today) out.push("今日除權息");
+    return out;
+  }
+
+  const api = { alertsFor, THRESHOLD_KEY, sortRows, rotationChart, MARKET_NOTE, SURVIVOR_NOTE, RANGES, MAX_NODES, seriesKeys, rangeStart, firstDateNote, visibleKeys, lineChart, relativeRanks, formatLots };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Trend = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -365,7 +365,19 @@ def api_companies():
         raise ApiError(f"最多 {MAX_COMPANY_IDS} 個代號", 400)
     for i in ids:
         check_stock_id(i)
-    return jsonify(fetch_companies(ids) if ids else [])
+    rows = fetch_companies(ids) if ids else []
+    # 快照只用來補提醒欄位；讀取失敗不影響主要資料（signals 空、ex_today null）
+    try:
+        snap = snapshot_cache.get()
+    except Exception:
+        app.logger.exception("自選股提醒：快照讀取失敗")
+        snap = {}
+    signals, ex = snap.get("signals") or {}, snap.get("ex") or {}
+    out = []
+    for r in rows:
+        sid = r.get("stock_id")
+        out.append({**r, "signals": signals.get(sid, []), "ex_today": (ex.get(sid) or {}).get(1)})
+    return jsonify(out)
 
 
 @app.route('/api/industry_links/<major_id>')

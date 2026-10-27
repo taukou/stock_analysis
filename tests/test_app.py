@@ -152,8 +152,10 @@ def test_companies_ids_validation(client):
 
 
 def test_companies_passthrough(client, monkeypatch):
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(snap={}))
     monkeypatch.setattr(app_module, "fetch_companies", lambda ids: [{"stock_id": i} for i in ids])
-    assert client.get("/api/companies?ids=2330,3105").get_json() == [{"stock_id": "2330"}, {"stock_id": "3105"}]
+    assert client.get("/api/companies?ids=2330,3105").get_json() == [
+        {"stock_id": "2330", "signals": [], "ex_today": None}, {"stock_id": "3105", "signals": [], "ex_today": None}]
 
 
 def test_search_passthrough(client, monkeypatch):
@@ -380,3 +382,26 @@ def test_home_has_ranking_and_rotation_sections(client):
     assert 'id="ranking"' in html and 'id="rotation"' in html
     from industry_trends import SURVIVOR_NOTE
     assert html.count(SURVIVOR_NOTE) == 2   # 排行表下、輪動圖下各一行（含錯誤／空狀態）
+
+
+def test_companies_include_signals_and_ex_today(client, monkeypatch):
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache())
+    monkeypatch.setattr(app_module, "fetch_companies", lambda ids: [{"stock_id": i} for i in ids])
+    d = client.get("/api/companies?ids=2330,6999").get_json()
+    assert d[0]["signals"] == SNAP["signals"]["2330"] and d[0]["ex_today"] is None
+    assert d[1]["signals"] == [] and d[1]["ex_today"] is None
+
+
+def test_companies_ex_today_value(client, monkeypatch):
+    snap = {**SNAP, "ex": {"2330": {1: "除息", 5: "除息", 20: "除息"}}}
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(snap))
+    monkeypatch.setattr(app_module, "fetch_companies", lambda ids: [{"stock_id": i} for i in ids])
+    assert client.get("/api/companies?ids=2330").get_json()[0]["ex_today"] == "除息"
+
+
+def test_companies_still_ok_when_snapshot_fails(client, monkeypatch):
+    monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(err=RuntimeError("down")))
+    monkeypatch.setattr(app_module, "fetch_companies", lambda ids: [{"stock_id": i, "latest_change": 1.0} for i in ids])
+    res = client.get("/api/companies?ids=2330")
+    assert res.status_code == 200
+    assert res.get_json() == [{"stock_id": "2330", "latest_change": 1.0, "signals": [], "ex_today": None}]
