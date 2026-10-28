@@ -47,7 +47,8 @@ insert into industry_links (from_node_id, to_node_id) values ('N101', 'N201');
 2. 每天同步完（產業指數更新後）自動產生一次，存在 `reports\ai_picks\<資料日>.json`；沒設定金鑰時略過，不算同步失敗。
 3. 手動重新產生：`.venv\Scripts\python.exe ai_picks.py`。
 4. 預設用 `gemini-flash-latest`；找不到時改用 `gemini-2.5-flash`，也可在 `.env` 設 `GEMINI_MODEL=模型名稱` 指定。
-5. AI 只能從當天的產業與候選個股名單挑（有訊號的公司與法人 5 日買超前幾名），名單外的推薦會被丟掉。
+5. AI 只能從當天的產業與候選個股名單挑（技術面／籌碼／營收訊號最多的公司與法人 5 日買超前幾名），名單外的推薦會被丟掉。
+6. 推薦理由、風險與標籤裡的每個數字都會和該產業／個股的資料核對（可四捨五入或寫成「萬張」），對不上的推薦直接刪除，頁面會註明刪了幾則；全部被刪時會重新請 AI 產生一次。
 
 ## 紀錄
 `logs/`（`web.log`、`sync.log`，保留 30 天），不進 git。

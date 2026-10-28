@@ -216,9 +216,12 @@ def _lot(v):
 
 
 def flow_text(f: dict) -> str:
-    return (f"外資10日買{f['foreign_days10'] if f['foreign_days10'] is not None else '—'}天 20日{_lot(f['foreign20'])} "
-            f"投信10日買{f['trust_days10'] if f['trust_days10'] is not None else '—'}天 20日{_lot(f['trust20'])} "
-            f"自營5日{_lot(f['dealer5'])}")
+    """每個數字都標明期間，避免 AI 把 20 日累計說成 10 日。"""
+    def days(v):
+        return "—" if v is None else f"{v}天"
+    return (f"外資10日內買超{days(f['foreign_days10'])}、20日累計{_lot(f['foreign20'])}；"
+            f"投信10日內買超{days(f['trust_days10'])}、20日累計{_lot(f['trust20'])}；"
+            f"自營商5日累計{_lot(f['dealer5'])}")
 
 
 def revenue_text(rev: dict | None) -> str:

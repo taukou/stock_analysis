@@ -439,7 +439,7 @@ def test_daily_ai_card_shows_picks_even_when_data_unavailable(client, monkeypatc
         {"kind": "industry", "id": "M01", "name": "半導體", "major_id": "M01", "node_id": None,
          "reason": "外資回補", "risk": "RSI 已達 78", "evidence": ["外資 5 日 +4 萬張"]},
         {"kind": "stock", "id": "2330", "name": "台積電", "major_id": "M01", "node_id": "N1",
-         "reason": "投信連買", "evidence": []}]}, ctx, "gemini-x", datetime(2026, 10, 21, 16, 40))
+         "reason": "投信連買", "evidence": []}], "dropped": 1}, ctx, "gemini-x", datetime(2026, 10, 21, 16, 40))
     _daily_snap_and_mapping(monkeypatch)
     _patch_index(monkeypatch, _index({"major:M01": _pts(5), "market:TW": _pts(5)}))
     monkeypatch.setattr(app_module, "fetch_node_names", lambda: {"N1": "晶圓代工"})
@@ -450,6 +450,7 @@ def test_daily_ai_card_shows_picks_even_when_data_unavailable(client, monkeypatc
     assert "外資 5 日 +4 萬張" in html and ai_picks.DISCLAIMER in html
     assert "<span>風險</span>RSI 已達 78" in html and html.count("<span>風險</span>") == 1   # 舊檔沒有 risk 也能顯示
     assert "今日推薦尚未產生，以下為 2026-10-21 的推薦" in html    # 股價已到 10-22
+    assert "已刪除 1 則數字對不上資料的推薦" in html
     # 其他資料讀不到時 AI 卡片照常顯示
     monkeypatch.setattr(app_module, "snapshot_cache", FakeCache(err=RuntimeError("down")))
     html = client.get("/daily").get_data(as_text=True)

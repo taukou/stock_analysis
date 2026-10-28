@@ -117,7 +117,7 @@
                 {% if p.evidence %}<div class="ai-tags">{% for e in p.evidence %}<span>{{ e }}</span>{% endfor %}</div>{% endif %}
             </div>
             {% endfor %}
-            <p class="note">資料日期 {{ ai.date }} · 產生於 {{ ai.generated_at }} · {{ ai.model }} · {{ AI_DISCLAIMER }}</p>
+            <p class="note">資料日期 {{ ai.date }} · 產生於 {{ ai.generated_at }} · {{ ai.model }}{% if ai.dropped %} · 已刪除 {{ ai.dropped }} 則數字對不上資料的推薦{% endif %} · {{ AI_DISCLAIMER }}</p>
             {% elif ai_key %}
             <p class="none">推薦尚未產生，下次同步後會出現（也可手動執行 ai_picks.py）</p>
             {% else %}

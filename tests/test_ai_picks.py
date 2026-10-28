@@ -56,6 +56,29 @@ def test_validate_keeps_only_listed_ids_and_fills_names():
     assert out["picks"][0]["node_id"] == "N1" and out["picks"][1]["node_id"] is None
 
 
+def test_unverified_numbers_allows_rounding_and_units():
+    src = "外資10日內買超9天、20日累計+57,414張 RSI 87 年增+38.6% 今日 -0.57%"
+    assert ai_picks.unverified_numbers("外資 20 日累計 5.7 萬張、約 57,000 張，10 日買超 9 天", src) == []
+    assert ai_picks.unverified_numbers("RSI 87，年增 39%，下跌 0.57%，RSI 超過 70", src) == []
+    assert ai_picks.unverified_numbers("外資累計 6.2 萬張、年增 42%，RSI 88", src) == ["6.2 萬", "42", "88"]
+    assert ai_picks.unverified_numbers("外資 24.3 萬張、24.4 萬張", "+243,777張") == []   # 捨去或四捨五入都可
+
+
+def test_validate_drops_picks_citing_numbers_not_in_data():
+    raw = {"overview": "o", "picks": [
+        {"kind": "stock", "id": "2330", "reason": "外資 5 日買超 9,999 張", "risk": "", "evidence": []},
+        {"kind": "industry", "id": "M01", "reason": "5 日跌 4.05%", "risk": "20 日跌 4.8%",
+         "evidence": ["外資 5 日 -12.3 萬張"]},
+        {"kind": "industry", "id": "M01", "reason": "重複不算刪除", "evidence": []},
+    ]}
+    out = ai_picks.validate(raw, _ctx())
+    assert [p["id"] for p in out["picks"]] == ["M01"] and out["dropped"] == 1
+    # 個股可以引用所屬產業與大盤的數字
+    raw = {"overview": "o", "picks": [{"kind": "stock", "id": "2330", "reason": "外資 5 日 +4,200 張，產業 5 日 -4.05%，大盤 5 日 -2.3%",
+                                       "risk": "", "evidence": []}]}
+    assert ai_picks.validate(raw, _ctx())["dropped"] == 0
+
+
 def test_validate_caps_picks():
     ctx = _ctx()
     ctx["stocks"] = [{**ctx["stocks"][0], "stock_id": str(1000 + i)} for i in range(8)]
@@ -65,9 +88,10 @@ def test_validate_caps_picks():
 
 def test_prompt_lists_ids_numbers_and_signals():
     text = ai_picks.build_prompt(_ctx())
-    assert "M01｜半導體｜-0.57%｜-4.05%｜-4.81%｜—｜—｜—｜—｜-122,599張｜+34,749張｜落後" in text
-    assert "2330 台積電｜半導體｜+1.00%/+2.00%/—｜外資+4,200張 投信—｜—｜—｜—｜投信連買 5 日" in text
-    assert "光碟機（電腦及週邊設備）+2.23%" in text
+    assert ("M01｜半導體｜今日 -0.57%｜5日 -4.05%｜20日 -4.81%｜60日 —｜一年 —｜離20日均 —｜離60日均 —｜"
+            "外資5日累計 -122,599張｜投信5日累計 +34,749張｜輪動（8週前→現在） 落後") in text
+    assert "2330 台積電｜半導體｜漲跌 今日+1.00% 5日+2.00% 20日—｜外資5日累計+4,200張 投信5日累計—｜—｜—｜—｜投信連買 5 日" in text
+    assert "今日最強節點 光碟機（電腦及週邊設備）+2.23%" in text
 
 
 def test_prompt_includes_all_factor_groups():
@@ -82,10 +106,10 @@ def test_prompt_includes_all_factor_groups():
         "flow": {"foreign_days10": 7, "trust_days10": 2, "dealer5": -50, "foreign20": 9000, "trust20": 10},
         "revenue": {"month": "115/09", "yoy": 25.0, "mom": -3.0, "acc_yoy": 18.0, "yoy_streak": 4, "accel": 6.0}})
     text = ai_picks.build_prompt(ctx)
-    assert "+5.00%｜+30.00%｜+1.2%｜-0.5%" in text and "落後→轉強" in text
+    assert "60日 +5.00%｜一年 +30.00%｜離20日均 +1.2%｜離60日均 -0.5%" in text and "落後→轉強" in text
     assert "半導體／晶圓代工（中游）" in text
     assert "MA5/20黃金交叉（1日前）" in text and "RSI 71" in text
-    assert "外資10日買7天" in text and "自營5日-50張" in text
+    assert "外資10日內買超7天、20日累計+9,000張" in text and "自營商5日累計-50張" in text
     assert "115/09 年增+25.0% 月增-3.0% 累計年增+18.0% 年增連4月為正" in text
     assert "risk" in str(ai_picks.RESPONSE_SCHEMA["properties"]["picks"]["items"]["required"])
 
@@ -173,9 +197,10 @@ def test_generate_fails_when_nothing_valid(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.setattr(ai_picks, "build_context", lambda app_module: _ctx())
     post = lambda url, **kw: _ok({"overview": "o", "picks": [{"kind": "stock", "id": "0000", "reason": "x", "evidence": []}]})
+    calls = []
     with pytest.raises(ai_picks.AiPicksError):
-        ai_picks.generate(NOW, app_module=object(), post=post)
-    assert ai_picks.load_latest() is None
+        ai_picks.generate(NOW, app_module=object(), post=lambda url, **kw: (calls.append(url), post(url))[1])
+    assert ai_picks.load_latest() is None and len(calls) == 2      # 全部無效時重試一次
 
 
 def _patch_index_jobs(monkeypatch, order):

@@ -69,7 +69,7 @@ def test_flow_stats():
     f = F.flow_stats(list(reversed(flows)))
     assert f == {"foreign_days10": 5, "trust_days10": 10, "dealer5": 1, "foreign20": 0, "trust20": 40}
     assert F.flow_stats([])["foreign_days10"] is None
-    assert "外資10日買5天" in F.flow_text(f) and "自營5日+1張" in F.flow_text(f)
+    assert F.flow_text(f) == "外資10日內買超5天、20日累計+0張；投信10日內買超10天、20日累計+40張；自營商5日累計+1張"
 
 
 def test_revenue_stats_streak_and_acceleration():
