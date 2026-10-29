@@ -93,8 +93,32 @@ def _stale_reason(name: str, run: dict | None, latest: dict, now: datetime) -> s
     return None   # 收盤後已同步且無訊息：中間是休市日
 
 
-def freshness(rows: list[dict], now: datetime) -> dict:
-    """回傳 {"level", "message", "datasets"}；failed > stale > ok。now 為台北本地時間（naive）。"""
+MAX_PROBLEM_LABELS = 4
+# 依錯誤訊息猜原因（只比對固定字串，不顯示原始訊息）
+CAUSE_HINTS = (("Invalid API key", "資料庫金鑰無效，請檢查 .env 的 SUPABASE 金鑰"),
+               ("API key not valid", "Gemini 金鑰無效，請檢查 .env 的 GEMINI_API_KEY"),
+               ("ConnectionError", "網路連線失敗"),
+               ("Timeout", "連線逾時"))
+
+
+def local_failure(local: dict | None) -> str | None:
+    """本機同步狀態檔（sync_status.json）記錄的失敗 → 給使用者看的一句話；沒失敗回 None。"""
+    if not local or local.get("ok", True):
+        return None
+    problems = local.get("problems") or []
+    labels = list(dict.fromkeys(p.get("label", "?") for p in problems))
+    shown = "、".join(labels[:MAX_PROBLEM_LABELS]) + (f" 等 {len(labels)} 項" if len(labels) > MAX_PROBLEM_LABELS else "")
+    text = " ".join(str(p.get("message") or "") for p in problems)
+    hint = next((h for key, h in CAUSE_HINTS if key in text), None)
+    return (f"最近一次同步（{local.get('finished_at', '—')}）失敗：{shown or '原因不明'}"
+            + (f"（{hint}）" if hint else "；詳見 logs/sync.log"))
+
+
+def freshness(rows: list[dict], now: datetime, local: dict | None = None) -> dict:
+    """回傳 {"level", "message", "datasets"}；failed > stale > ok。now 為台北本地時間（naive）。
+
+    local 為本機同步狀態檔：資料庫寫不進 sync_runs 時（例如金鑰失效）只有它記得失敗，優先採用。
+    """
     latest = latest_runs(rows)
     quotes_date = latest.get("quotes", {}).get("last_date")
     head = f"資料更新至 {quotes_date or '—'}"
@@ -110,6 +134,10 @@ def freshness(rows: list[dict], now: datetime) -> dict:
         for name in DATASET_ORDER
         if name in latest
     ]
+
+    local_msg = local_failure(local)
+    if local_msg:
+        return {"level": "failed", "message": f"{head}；{local_msg}", "datasets": datasets}
 
     failed = [d["label"] for d in datasets if d["status"] == "failed"]
     if failed:

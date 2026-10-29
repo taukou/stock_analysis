@@ -117,3 +117,20 @@ def test_industry_index_failed_is_reported():
     rows = [run("quotes", "2026-10-26"), run("industry_index", None, "failed")]
     out = freshness(rows, datetime(2026, 10, 26, 16))
     assert out["level"] == "failed" and "產業指數" in out["message"]
+
+
+def test_local_status_failure_wins_and_hints_cause():
+    from freshness import local_failure
+    now = datetime(2026, 10, 26, 16)
+    ok = [run("quotes", "2026-10-26"), run("institutional", "2026-10-26")]
+    assert freshness(ok, now, {"finished_at": "x", "ok": True, "problems": []})["level"] == "ok"
+    local = {"finished_at": "2026-10-28 16:00", "ok": False, "problems": [
+        {"label": "股價", "message": "{'code': 401, 'details': 'Invalid API key'}"},
+        {"label": "股價同步紀錄", "message": "APIError"}]}
+    f = freshness(ok, now, local)
+    assert f["level"] == "failed"
+    assert f["message"] == ("資料更新至 2026-10-26；最近一次同步（2026-10-28 16:00）失敗：股價、股價同步紀錄"
+                            "（資料庫金鑰無效，請檢查 .env 的 SUPABASE 金鑰）")
+    many = {"finished_at": "t", "ok": False, "problems": [{"label": str(i), "message": "boom"} for i in range(6)]}
+    assert local_failure(many) == "最近一次同步（t）失敗：0、1、2、3 等 6 項；詳見 logs/sync.log"
+    assert local_failure(None) is None

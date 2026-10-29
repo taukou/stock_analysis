@@ -11,6 +11,7 @@ from database import (
 )
 import ai_picks
 from freshness import freshness
+import sync_status
 import index_data
 from index_data import index_cache, mapping_cache
 from industry_trends import (
@@ -110,11 +111,7 @@ def build_daily_digest():
 @app.route('/daily')
 def daily_view():
     """每日摘要頁：AI 推薦、強弱產業與節點、法人流向；資料讀不到時顯示提示而非 500。"""
-    try:
-        fresh = freshness(fetch_sync_runs(), datetime.now())["message"]
-    except Exception:
-        app.logger.exception("新鮮度讀取失敗")
-        fresh = "資料狀態未知"
+    fresh = current_freshness()["message"]
     digest, snap = None, {}
     try:
         digest, snap = build_daily_digest()
@@ -380,9 +377,22 @@ def api_node_flows(major_id):
     return jsonify({"flow_date": snap.get("flow_date"), "nodes": nodes})
 
 
+def current_freshness() -> dict:
+    """資料新鮮度；sync_runs 讀不到時仍以本機同步狀態檔判斷最近一次同步是否失敗。"""
+    try:
+        rows = fetch_sync_runs()
+    except Exception:
+        app.logger.exception("同步紀錄讀取失敗")
+        rows = None
+    f = freshness(rows or [], datetime.now(), sync_status.read())
+    if rows is None and f["level"] != "failed":
+        f = {**f, "level": "stale", "message": "資料狀態未知（同步紀錄讀取失敗）"}
+    return f
+
+
 @app.route('/api/freshness')
 def api_freshness():
-    return jsonify(freshness(fetch_sync_runs(), datetime.now()))
+    return jsonify(current_freshness())
 
 
 @app.route('/api/search')

@@ -179,6 +179,9 @@
         {% endif %}
     </main>
     <script src="{{ url_for('static', filename='js/common.js') }}"></script>
-    <script>Common.mountSearch(document.getElementById('search-input'), document.getElementById('search-list'));</script>
+    <script>
+        Common.mountSearch(document.getElementById('search-input'), document.getElementById('search-list'));
+        Common.mountFreshness(document.getElementById('freshness'));
+    </script>
 </body>
 </html>

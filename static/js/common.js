@@ -18,6 +18,26 @@
       `${d.label || d.dataset}：${d.last_date || "—"}（${STATUS_TEXT[d.status] || d.status || "—"}）`).join("\n");
   }
 
+  // 同步失敗時頁面最上方的紅色提示（可關閉，重新整理後若仍失敗會再出現）
+  function showSyncAlert(message) {
+    let bar = document.getElementById("sync-alert");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "sync-alert";
+      bar.setAttribute("role", "alert");
+      const text = document.createElement("span");
+      const close = document.createElement("button");
+      close.type = "button";
+      close.textContent = "×";
+      close.setAttribute("aria-label", "關閉提示");
+      close.addEventListener("click", () => bar.remove());
+      bar.append(text, close);
+      document.body.prepend(bar);
+    }
+    bar.firstChild.textContent = `⚠ ${message}`;
+    return bar;
+  }
+
   function mountFreshness(el) {
     const apply = (cls, text, title) => {
       el.classList.remove(...FRESH_CLASSES);
@@ -29,6 +49,7 @@
       .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
       .then(f => {
         apply(freshnessClass(f.level), f.message || "資料狀態未知", freshnessTooltip(f.datasets));
+        if (f.level === "failed") showSyncAlert(f.message);
       })
       .catch(() => apply("fresh-stale", "資料狀態未知", ""));
   }
@@ -174,7 +195,7 @@
     return { refresh: () => { movePill(current); update(); } };
   }
 
-  const api = { freshnessClass, freshnessTooltip, searchUrl, mountFreshness, mountSearch, activeSection, mountNavTabs };
+  const api = { freshnessClass, freshnessTooltip, searchUrl, showSyncAlert, mountFreshness, mountSearch, activeSection, mountNavTabs };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Common = api;
 })(typeof window !== "undefined" ? window : globalThis);

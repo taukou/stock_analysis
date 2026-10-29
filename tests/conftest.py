@@ -13,3 +13,10 @@ def _isolate_ai_picks(monkeypatch, tmp_path):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.setattr(ai_picks, "PICKS_DIR", tmp_path / "ai_picks")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_sync_status(monkeypatch, tmp_path):
+    """測試不寫 reports/sync_status.json。"""
+    import sync_status
+    monkeypatch.setattr(sync_status, "STATUS_PATH", tmp_path / "sync_status.json")

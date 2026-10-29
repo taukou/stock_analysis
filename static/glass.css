@@ -104,6 +104,19 @@
 #freshness.fresh-stale { background: rgba(245, 200, 60, 0.22); border-color: rgba(245, 200, 60, 0.5); }
 #freshness.fresh-failed { background: rgba(255, 70, 100, 0.25); border-color: rgba(255, 120, 140, 0.55); }
 
+/* 同步失敗：頁面最上方的紅色提示（蓋在導覽列上，可關閉） */
+#sync-alert {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 4000;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    padding: 8px 16px; font-size: 13px; line-height: 1.5; color: #fff;
+    background: rgba(200, 30, 60, 0.92); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+#sync-alert button {
+    flex: none; width: 26px; height: 26px; border: 0; border-radius: 50%; cursor: pointer;
+    font-size: 16px; line-height: 1; color: #fff; background: rgba(255, 255, 255, 0.18);
+}
+#sync-alert button:hover { background: rgba(255, 255, 255, 0.32); }
+
 .search-input {
     width: 150px; padding: 5px 12px; border-radius: 999px; font: inherit; font-size: 13px;
     color: var(--text-1); background: rgba(255, 255, 255, 0.10); border: 1px solid rgba(255, 255, 255, 0.18);

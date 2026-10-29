@@ -165,7 +165,7 @@ def test_search_passthrough(client, monkeypatch):
 
 def test_freshness_and_links_passthrough(client, monkeypatch):
     monkeypatch.setattr(app_module, "fetch_sync_runs", lambda: [])
-    monkeypatch.setattr(app_module, "freshness", lambda rows, now: {"ok": rows == [] and now is not None})
+    monkeypatch.setattr(app_module, "freshness", lambda rows, now, local=None: {"ok": rows == [] and now is not None})
     monkeypatch.setattr(app_module, "fetch_industry_links", lambda m: [{"from": "a", "to": "b"}])
     assert client.get("/api/freshness").get_json() == {"ok": True}
     assert client.get("/api/industry_links/M01").get_json() == [{"from": "a", "to": "b"}]
@@ -487,3 +487,16 @@ def test_companies_still_ok_when_snapshot_fails(client, monkeypatch):
     res = client.get("/api/companies?ids=2330")
     assert res.status_code == 200
     assert res.get_json() == [{"stock_id": "2330", "latest_change": 1.0, "signals": [], "ex_today": None}]
+
+
+def test_freshness_uses_local_status_when_sync_runs_unreadable(client, monkeypatch):
+    import sync_status
+
+    def boom():
+        raise RuntimeError("Invalid API key")
+    monkeypatch.setattr(app_module, "fetch_sync_runs", boom)
+    f = client.get("/api/freshness").get_json()
+    assert f["level"] == "stale" and "資料狀態未知" in f["message"]
+    sync_status.write(datetime(2026, 10, 28, 16, 0), [{"label": "股價", "message": "Invalid API key"}])
+    f = client.get("/api/freshness").get_json()
+    assert f["level"] == "failed" and "最近一次同步（2026-10-28 16:00）失敗：股價" in f["message"]

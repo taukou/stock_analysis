@@ -153,3 +153,31 @@ def test_backfill_runs_right_after_sync_index_even_if_it_failed(monkeypatch):
     assert run_sync.run(store, NOW) == 1
     assert order == ["index", "backfill"]
     assert [r.dataset for r in store.runs] == ["industry_index", "index_backfill"]
+
+
+def test_run_writes_local_status_including_record_failures():
+    import sync_status
+    assert run_sync.run(FakeStore(), NOW, _five()) == 0
+    assert sync_status.read() == {"finished_at": "2026-10-25 18:00", "ok": True, "problems": []}
+    store = FakeStore()
+
+    def boom(*a, **k):
+        raise RuntimeError("Invalid API key")
+    store.record_run = boom
+    assert run_sync.run(store, NOW, _five({"quotes": "failed"}, {"quotes": 0})) == 1
+    st = sync_status.read()
+    labels = [p["label"] for p in st["problems"]]
+    assert st["ok"] is False and labels[:2] == ["股價", "股價同步紀錄"] and "法人同步紀錄" in labels
+    assert "Invalid API key" in st["problems"][1]["message"]
+
+
+def test_main_writes_local_status_when_make_store_fails(monkeypatch, tmp_path):
+    import sync_status
+    monkeypatch.setattr(run_sync, "LOG_ROOT", tmp_path)
+
+    def bad():
+        raise RuntimeError("missing key")
+    monkeypatch.setattr(run_sync, "make_store", bad)
+    run_sync.main()
+    logging.getLogger().handlers.clear()
+    assert sync_status.read()["problems"] == [{"label": "資料庫連線", "message": "RuntimeError: missing key"}]
