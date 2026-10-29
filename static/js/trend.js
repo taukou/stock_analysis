@@ -222,11 +222,13 @@
     const placed = [], ys = new Array(items.length);
     order.forEach(i => {
       const it = items[i];
-      let y = it.y, moved = true;
-      while (moved) {
+      // 間距判斷留 0.01 的容差：p.y + lineH - p.y 會因浮點誤差算成 12.999…，不留容差會永遠推不開（無窮迴圈）；
+      // 另限制推移次數作為保險
+      let y = it.y, moved = true, guard = placed.length + 1;
+      while (moved && guard-- > 0) {
         moved = false;
         for (const p of placed) {
-          if (it.x < p.x + p.w && p.x < it.x + it.w && Math.abs(y - p.y) < lineH) { y = p.y + lineH; moved = true; }
+          if (it.x < p.x + p.w && p.x < it.x + it.w && Math.abs(y - p.y) < lineH - 0.01) { y = p.y + lineH; moved = true; }
         }
       }
       ys[i] = y;

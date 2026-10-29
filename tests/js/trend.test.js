@@ -94,3 +94,12 @@ test("spreadLabels pushes overlapping labels apart and leaves free ones alone", 
   assert.ok(Math.abs(ys[0] - ys[1]) >= 13);
   assert.ok(ys.slice(0, 2).includes(200));
 });
+
+test("spreadLabels terminates when float rounding makes the gap 12.999… (real 2026-10-29 data)", () => {
+  const items = [{ x: 481.0681031165834, y: 251.18864869241364, w: 81 },
+                 { x: 481.48557137360496, y: 266.84649016273994, w: 48 },
+                 { x: 443.91342824163144, y: 263.6394623917092, w: 48 }];
+  const ys = T.spreadLabels(items, 13);           // 修正前這裡會無窮迴圈
+  assert.ok(ys.every(Number.isFinite));
+  assert.ok(Math.abs(ys[2] - ys[0]) >= 12.99 && Math.abs(ys[1] - ys[0]) >= 12.99);
+});
