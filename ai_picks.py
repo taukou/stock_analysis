@@ -424,6 +424,18 @@ def load_latest(out_dir: Path | None = None) -> dict | None:
     return None
 
 
+def load_all(out_dir: Path | None = None) -> list[dict]:
+    """所有推薦檔（舊到新）；讀不到的檔略過。"""
+    out_dir = out_dir or PICKS_DIR
+    docs = []
+    for path in sorted(out_dir.glob("????-??-??.json")):
+        try:
+            docs.append(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            log.exception("AI 推薦檔讀取失敗：%s", path.name)
+    return docs
+
+
 def has_key() -> bool:
     return bool(os.environ.get("GEMINI_API_KEY"))
 

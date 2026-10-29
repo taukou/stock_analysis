@@ -10,6 +10,7 @@ from database import (
     get_node_companies, search_companies,
 )
 import ai_picks
+import ai_scorecard
 from freshness import freshness
 import sync_status
 import index_data
@@ -108,6 +109,17 @@ def build_daily_digest():
     return digest, snap
 
 
+def build_scorecard() -> dict | None:
+    """所有歷史推薦的後續表現；還沒有推薦檔回 None。"""
+    docs = ai_picks.load_all()
+    if not docs:
+        return None
+    ids = sorted({p["id"] for d in docs for p in d.get("picks") or [] if p.get("kind") == "stock"})
+    since = min(d["date"] for d in docs)
+    stocks = ai_scorecard.stock_levels(fetch_quotes_since(ids, since), fetch_ex_rights_since(ids, since)) if ids else {}
+    return ai_scorecard.evaluate(docs, stocks, index_cache.get()["series"])
+
+
 @app.route('/daily')
 def daily_view():
     """每日摘要頁：AI 推薦、強弱產業與節點、法人流向；資料讀不到時顯示提示而非 500。"""
@@ -122,7 +134,12 @@ def daily_view():
     except Exception:
         app.logger.exception("AI 推薦讀取失敗")
         ai = None
-    return render_template('daily.html', digest=digest, freshness=fresh, MARKET_NOTE=MARKET_NOTE, SURVIVOR_NOTE=SURVIVOR_NOTE,
+    try:
+        score = build_scorecard()
+    except Exception:
+        app.logger.exception("AI 推薦成績計算失敗")
+        score = None
+    return render_template('daily.html', digest=digest, score=score, RECENT_ROWS=ai_scorecard.RECENT_ROWS, freshness=fresh, MARKET_NOTE=MARKET_NOTE, SURVIVOR_NOTE=SURVIVOR_NOTE,
                            flow_date=snap.get("flow_date"), latest_date=snap.get("latest_date"),
                            ai=ai, ai_key=ai_picks.has_key(), AI_DISCLAIMER=ai_picks.DISCLAIMER)
 

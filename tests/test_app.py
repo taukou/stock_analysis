@@ -443,7 +443,14 @@ def test_daily_ai_card_shows_picks_even_when_data_unavailable(client, monkeypatc
     _daily_snap_and_mapping(monkeypatch)
     _patch_index(monkeypatch, _index({"major:M01": _pts(5), "market:TW": _pts(5)}))
     monkeypatch.setattr(app_module, "fetch_node_names", lambda: {"N1": "晶圓代工"})
+    monkeypatch.setattr(app_module, "fetch_quotes_since", lambda ids, since: (
+        [{"stock_id": "2330", "trade_date": "2026-10-21", "close": 100}, {"stock_id": "2330", "trade_date": "2026-10-22", "close": 103}]
+        if ids == ["2330"] and since == "2026-10-21" else []))
+    monkeypatch.setattr(app_module, "fetch_ex_rights_since", lambda ids, since: [])
     html = client.get("/daily").get_data(as_text=True)
+    # 成績單：台積電 10-21→10-22 +3%，大盤（_pts）103→104
+    assert "AI 推薦成績" in html and "<td>10-21</td>" in html and "+3.00%" in html
+    assert "還沒有滿 5 個交易日的推薦" in html
     assert "資金轉向半導體&lt;b&gt;" in html                       # 跳脫 AI 文字
     assert 'href="/industry/M01?trend=open">半導體' in html
     assert 'href="/industry/M01?node=N1&company=2330">台積電' in html

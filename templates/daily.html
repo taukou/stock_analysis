@@ -57,7 +57,21 @@
         .ai-tags { display: flex; flex-wrap: wrap; gap: 6px; }
         .ai-tags span { font-size: 0.78rem; padding: 2px 10px; border-radius: 999px; color: var(--text-1);
                         background: rgba(255, 255, 255, 0.10); border: 1px solid rgba(255, 255, 255, 0.18); }
-        @media (max-width: 600px) { .cols { grid-template-columns: 1fr; } }
+        .score-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+        .score-box { padding: 10px 12px; border-radius: var(--radius-s, 12px); background: rgba(255, 255, 255, 0.06);
+                     border: 1px solid rgba(255, 255, 255, 0.10); font-variant-numeric: tabular-nums; }
+        .score-box h3 { font-size: 0.8rem; color: var(--text-2); font-weight: 500; margin-bottom: 4px; }
+        .score-avg { font-size: 1.25rem; font-weight: 600; }
+        .score-avg small { font-size: 0.75rem; font-weight: 400; color: var(--text-3); margin-left: 6px; }
+        .score-line { font-size: 0.8rem; color: var(--text-2); margin-top: 2px; }
+        .score-wrap { overflow-x: auto; }
+        .score-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+        .score-table th { white-space: nowrap; text-align: right; font-weight: 500; color: var(--text-3); font-size: 0.78rem; padding: 6px 8px; }
+        .score-table td { text-align: right; padding: 6px 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); white-space: nowrap; }
+        .score-table th:nth-child(-n+2), .score-table td:nth-child(-n+2) { text-align: left; }
+        .score-table a { color: var(--text-1); text-decoration: none; }
+        .score-table a:hover { text-decoration: underline; }
+        @media (max-width: 600px) { .cols { grid-template-columns: 1fr; } .score-sum { gap: 8px; } .score-box { padding: 8px; } .score-avg { font-size: 1rem; } .score-avg small { display: block; margin-left: 0; } }
         @media (max-width: 520px) {
             .top-bar { gap: 8px; padding: 6px 10px; font-size: 0.8rem; max-width: calc(100vw - 16px); }
             .top-bar .brand, .top-bar .divider { display: none; }
@@ -124,6 +138,46 @@
             <p class="none">尚未設定 AI 金鑰：在 .env 加一行 GEMINI_API_KEY=你的金鑰，下次同步（或手動執行 ai_picks.py）就會產生</p>
             {% endif %}
         </section>
+
+        {# AI 推薦成績：過去推薦的後續漲跌，與大盤同期比較 #}
+        {% if score and score.rows %}
+        <section class="card glass">
+            <h2>AI 推薦成績</h2>
+            <div class="score-sum">
+                {% for key, label in [(5, '5 日後'), (20, '20 日後'), ('now', '至今')] %}
+                {% set s = score.summary.get(key) %}
+                <div class="score-box">
+                    <h3>{{ label }}</h3>
+                    {% if s %}
+                    <div class="score-avg">{{ chg(s.avg) }}<small>平均（{{ s.count }} 則）</small></div>
+                    <div class="score-line">比大盤 {{ chg(s.avg_excess) }} · 贏過大盤 {{ s.beat }}%</div>
+                    {% else %}
+                    <p class="none">{{ '還沒有滿 %s 個交易日的推薦' % key if key != 'now' else '還沒有隔日以後的推薦' }}</p>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="score-wrap">
+                <table class="score-table">
+                    <thead><tr><th>推薦日</th><th>名稱</th><th>至今</th><th>比大盤</th><th>5 日後</th><th>20 日後</th></tr></thead>
+                    <tbody>
+                    {% for r in score.rows[:RECENT_ROWS] %}
+                    <tr>
+                        <td>{{ r.date[5:] }}</td>
+                        <td>{% if r.kind == 'industry' %}<a href="/industry/{{ r.major_id | urlencode }}?trend=open">{{ r.name }}</a>
+                            {%- else %}<a href="/industry/{{ r.major_id | urlencode }}?node={{ r.node_id | urlencode }}&company={{ r.id | urlencode }}">{{ r.name }}</a>{% endif %}</td>
+                        <td>{{ chg(r.ret.get('now')) }}</td>
+                        <td>{{ chg(r.excess.get('now')) }}</td>
+                        <td>{{ chg(r.ret.get(5)) }}</td>
+                        <td>{{ chg(r.ret.get(20)) }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="note">以推薦日收盤價為起點、資料至 {{ score.latest }}；個股含除權息還原，產業與大盤為自行計算的等權指數。「比大盤」為同期漲跌相減。則數少時參考就好。</p>
+        </section>
+        {% endif %}
 
         {% if digest is none %}
         <p class="empty">資料暫時無法讀取</p>
